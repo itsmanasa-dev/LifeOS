@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/dashboard/screens/dashboard_screen.dart';
+import '../../features/planner/screens/planner_screen.dart';
+
 class AppRouter {
   AppRouter._();
 
@@ -47,11 +50,7 @@ class AppRouter {
         routes: [
           GoRoute(
             path: AppRoutes.dashboard,
-            builder: (context, state) => const _SectionScreen(
-              title: 'Dashboard',
-              description: 'Track your day, habits, study, and priorities.',
-              icon: Icons.dashboard_outlined,
-            ),
+            builder: (context, state) => const DashboardScreen(),
           ),
           GoRoute(
             path: AppRoutes.college,
@@ -72,11 +71,7 @@ class AppRouter {
           ),
           GoRoute(
             path: AppRoutes.planner,
-            builder: (context, state) => const _SectionScreen(
-              title: 'Planner',
-              description: 'Organize work into focused tasks and routines.',
-              icon: Icons.event_note_outlined,
-            ),
+            builder: (context, state) => const PlannerScreen(),
           ),
           GoRoute(
             path: AppRoutes.habits,
