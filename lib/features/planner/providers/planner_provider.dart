@@ -1,16 +1,18 @@
 import 'package:flutter/foundation.dart';
-
+import '../../../core/constants/app_constants.dart';
+import '../../../core/services/hive_service.dart';
 import '../models/task_model.dart';
 
 class PlannerProvider extends ChangeNotifier {
-  PlannerProvider() : _tasks = _seedTasks();
+  PlannerProvider() {
+    _loadFromHive();
+  }
 
-  final List<TaskModel> _tasks;
+  List<TaskModel> _tasks = [];
   bool _isLoading = false;
   TaskFilter _activeFilter = TaskFilter.today;
 
   bool get isLoading => _isLoading;
-
   TaskFilter get activeFilter => _activeFilter;
 
   List<TaskModel> get tasks => List.unmodifiable(_tasks);
@@ -20,7 +22,8 @@ class PlannerProvider extends ChangeNotifier {
           .where(
             (task) =>
                 task.dueDate != null &&
-                _isSameDay(task.dueDate!, DateTime.now()),
+                _isSameDay(task.dueDate!, DateTime.now()) &&
+                !task.isCompleted,
           )
           .toList()
         ..sort(_compareTasks);
@@ -48,12 +51,26 @@ class PlannerProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> loadTasks() async {
+  Future<void> _loadFromHive() async {
     _isLoading = true;
     notifyListeners();
-    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    final rawTasks = HiveService.instance.getAll(AppConstants.tasksBox);
+    if (rawTasks.isEmpty) {
+      _tasks = _seedTasks();
+      await _saveAllToHive();
+    } else {
+      _tasks = rawTasks
+          .map((e) => TaskModel.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    }
+
     _isLoading = false;
     notifyListeners();
+  }
+
+  Future<void> loadTasks() async {
+    await _loadFromHive();
   }
 
   void setFilter(TaskFilter filter) {
@@ -64,7 +81,7 @@ class PlannerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void upsertTask(TaskModel task) {
+  Future<void> upsertTask(TaskModel task) async {
     final index = _tasks.indexWhere((current) => current.id == task.id);
     if (index >= 0) {
       _tasks[index] = task;
@@ -72,21 +89,31 @@ class PlannerProvider extends ChangeNotifier {
       _tasks.add(task);
     }
     notifyListeners();
+    await HiveService.instance.put(AppConstants.tasksBox, task.id, task.toJson());
   }
 
-  void toggleComplete(String taskId) {
+  Future<void> toggleComplete(String taskId) async {
     final index = _tasks.indexWhere((task) => task.id == taskId);
     if (index < 0) {
       return;
     }
     final current = _tasks[index];
-    _tasks[index] = current.copyWith(isCompleted: !current.isCompleted);
+    final updated = current.copyWith(isCompleted: !current.isCompleted);
+    _tasks[index] = updated;
     notifyListeners();
+    await HiveService.instance.put(AppConstants.tasksBox, taskId, updated.toJson());
   }
 
-  void deleteTask(String taskId) {
+  Future<void> deleteTask(String taskId) async {
     _tasks.removeWhere((task) => task.id == taskId);
     notifyListeners();
+    await HiveService.instance.delete(AppConstants.tasksBox, taskId);
+  }
+
+  Future<void> _saveAllToHive() async {
+    for (final task in _tasks) {
+      await HiveService.instance.put(AppConstants.tasksBox, task.id, task.toJson());
+    }
   }
 
   static int _compareTasks(TaskModel a, TaskModel b) {
@@ -117,34 +144,38 @@ class PlannerProvider extends ChangeNotifier {
     return [
       TaskModel(
         id: 'task-1',
-        title: 'Review planner UI',
+        title: 'Review Planner UI Designs',
         description: 'Polish task card spacing and state styles.',
         priority: 'high',
-        category: 'Work',
+        category: 'College',
         dueDate: DateTime(now.year, now.month, now.day, 10),
+        createdAt: now,
       ),
       TaskModel(
         id: 'task-2',
-        title: 'Submit attendance summary',
+        title: 'Finish OS Architecture Paper',
         priority: 'urgent',
         category: 'College',
         dueDate: DateTime(now.year, now.month, now.day, 17),
+        createdAt: now,
       ),
       TaskModel(
         id: 'task-3',
-        title: 'Plan tomorrow study block',
-        description: 'Prepare topics for reasoning and current affairs.',
+        title: 'Refactor API Middleware',
+        description: 'Optimize focus block database reads.',
         priority: 'medium',
-        category: 'Study',
+        category: 'Coding',
         dueDate: DateTime(now.year, now.month, now.day + 1, 8),
+        createdAt: now,
       ),
       TaskModel(
         id: 'task-4',
-        title: 'Drink 3L water',
+        title: 'Submit College Attendance Sheet',
         priority: 'low',
-        category: 'Health',
+        category: 'College',
         dueDate: DateTime(now.year, now.month, now.day),
         isCompleted: true,
+        createdAt: now,
       ),
     ];
   }

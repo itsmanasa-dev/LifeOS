@@ -3,6 +3,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/dashboard/screens/dashboard_screen.dart';
 import '../../features/planner/screens/planner_screen.dart';
+import '../../features/college/screens/college_hub_screen.dart';
+import '../../features/exams/screens/study_tracker_screen.dart';
+import '../../features/settings/screens/profile_settings_screen.dart';
 
 class AppRouter {
   AppRouter._();
@@ -54,48 +57,19 @@ class AppRouter {
           ),
           GoRoute(
             path: AppRoutes.college,
-            builder: (context, state) => const _SectionScreen(
-              title: 'College',
-              description: 'Keep classes, subjects, and deadlines in one view.',
-              icon: Icons.school_outlined,
-            ),
-          ),
-          GoRoute(
-            path: AppRoutes.attendance,
-            builder: (context, state) => const _SectionScreen(
-              title: 'Attendance',
-              description:
-                  'Monitor attendance goals and stay above your target.',
-              icon: Icons.fact_check_outlined,
-            ),
+            builder: (context, state) => const CollegeHubScreen(),
           ),
           GoRoute(
             path: AppRoutes.planner,
             builder: (context, state) => const PlannerScreen(),
           ),
           GoRoute(
-            path: AppRoutes.habits,
-            builder: (context, state) => const _SectionScreen(
-              title: 'Habits',
-              description: 'Build consistency with daily habit tracking.',
-              icon: Icons.track_changes_outlined,
-            ),
-          ),
-          GoRoute(
             path: AppRoutes.govExam,
-            builder: (context, state) => const _SectionScreen(
-              title: 'Gov Exam',
-              description: 'Plan exam preparation and review study progress.',
-              icon: Icons.menu_book_outlined,
-            ),
+            builder: (context, state) => const StudyTrackerScreen(),
           ),
           GoRoute(
             path: AppRoutes.settings,
-            builder: (context, state) => const _SectionScreen(
-              title: 'Settings',
-              description: 'Adjust preferences and shape the app around you.',
-              icon: Icons.settings_outlined,
-            ),
+            builder: (context, state) => const ProfileSettingsScreen(),
           ),
         ],
       ),
@@ -245,48 +219,6 @@ class _AuthScreen extends StatelessWidget {
   }
 }
 
-class _SectionScreen extends StatelessWidget {
-  const _SectionScreen({
-    required this.title,
-    required this.description,
-    required this.icon,
-  });
-
-  final String title;
-  final String description;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(icon, size: 40, color: theme.colorScheme.primary),
-                    const SizedBox(height: 16),
-                    Text(title, style: theme.textTheme.headlineSmall),
-                    const SizedBox(height: 8),
-                    Text(description, style: theme.textTheme.bodyLarge),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _MainShell extends StatelessWidget {
   const _MainShell({required this.currentLocation, required this.child});
@@ -299,26 +231,31 @@ class _MainShell extends StatelessWidget {
       route: AppRoutes.dashboard,
       label: 'Home',
       icon: Icons.home_outlined,
+      selectedIcon: Icons.home_rounded,
     ),
     _NavItem(
       route: AppRoutes.college,
       label: 'College',
       icon: Icons.school_outlined,
+      selectedIcon: Icons.school_rounded,
     ),
     _NavItem(
-      route: AppRoutes.attendance,
-      label: 'Attendance',
-      icon: Icons.fact_check_outlined,
+      route: AppRoutes.govExam,
+      label: 'Study',
+      icon: Icons.local_fire_department_outlined,
+      selectedIcon: Icons.local_fire_department_rounded,
     ),
     _NavItem(
       route: AppRoutes.planner,
-      label: 'Planner',
-      icon: Icons.event_note_outlined,
+      label: 'Tasks',
+      icon: Icons.check_box_outlined,
+      selectedIcon: Icons.check_box_rounded,
     ),
     _NavItem(
       route: AppRoutes.settings,
-      label: 'Settings',
-      icon: Icons.settings_outlined,
+      label: 'Profile',
+      icon: Icons.person_outline_rounded,
+      selectedIcon: Icons.person_rounded,
     ),
   ];
 
@@ -336,10 +273,13 @@ class _MainShell extends StatelessWidget {
         },
         destinations: _items
             .map(
-              (item) => NavigationDestination(
-                icon: Icon(item.icon),
-                label: item.label,
-              ),
+              (item) {
+                final isSelected = currentLocation == item.route;
+                return NavigationDestination(
+                  icon: Icon(isSelected ? item.selectedIcon : item.icon),
+                  label: item.label,
+                );
+              },
             )
             .toList(),
       ),
@@ -357,9 +297,11 @@ class _NavItem {
     required this.route,
     required this.label,
     required this.icon,
+    required this.selectedIcon,
   });
 
   final String route;
   final String label;
   final IconData icon;
+  final IconData selectedIcon;
 }

@@ -50,4 +50,30 @@ class TaskModel {
       createdAt: createdAt ?? this.createdAt,
     );
   }
+
+  factory TaskModel.fromJson(Map<String, dynamic> json) {
+    return TaskModel(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      description: json['description'] as String?,
+      priority: json['priority'] as String? ?? 'medium',
+      isCompleted: json['isCompleted'] as bool? ?? false,
+      category: json['category'] as String?,
+      dueDate: json['dueDate'] != null ? DateTime.parse(json['dueDate'] as String) : null,
+      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt'] as String) : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'description': description,
+      'priority': priority,
+      'isCompleted': isCompleted,
+      'category': category,
+      'dueDate': dueDate?.toIso8601String(),
+      'createdAt': createdAt?.toIso8601String(),
+    };
+  }
 }

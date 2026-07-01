@@ -5,9 +5,9 @@ import '../models/user_model.dart';
 class AuthProvider extends ChangeNotifier {
   UserModel? _user = const UserModel(
     id: 'demo-user',
-    firstName: 'Aman',
-    lastName: 'Student',
-    email: 'aman@example.com',
+    firstName: 'Alex',
+    lastName: 'Chen',
+    email: 'alex.chen@example.com',
     college: 'LifeOS University',
   );
 
