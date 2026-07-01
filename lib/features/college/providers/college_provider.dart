@@ -8,13 +8,9 @@ class CollegeProvider extends ChangeNotifier {
     _loadFromHive();
   }
 
-  double _currentCgpa = 3.88;
-  double _targetCgpa = 3.90;
   List<TimetableEntry> _timetable = [];
   bool _isLoading = false;
 
-  double get currentCgpa => _currentCgpa;
-  double get targetCgpa => _targetCgpa;
   List<TimetableEntry> get timetable => List.unmodifiable(_timetable);
   bool get isLoading => _isLoading;
 
@@ -32,30 +28,11 @@ class CollegeProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    // Load GPA
-    _currentCgpa = HiveService.instance.get(
-      AppConstants.settingsBox,
-      'current_cgpa',
-      defaultValue: 3.88,
-    ) as double;
-
-    _targetCgpa = HiveService.instance.get(
-      AppConstants.settingsBox,
-      'target_cgpa',
-      defaultValue: 3.90,
-    ) as double;
-
     // Load Timetable
     final rawEntries = HiveService.instance.getAll(AppConstants.timetableBox);
-    if (rawEntries.isEmpty) {
-      // Seed default classes if empty
-      _timetable = _seedTimetable();
-      await _saveAllToHive();
-    } else {
-      _timetable = rawEntries
-          .map((e) => TimetableEntry.fromJson(Map<String, dynamic>.from(e)))
-          .toList();
-    }
+    _timetable = rawEntries
+        .map((e) => TimetableEntry.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
 
     _isLoading = false;
     notifyListeners();
@@ -69,25 +46,16 @@ class CollegeProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    // 1. Clear old timetable from Hive & Memory
+    // Clear old timetable from Hive & Memory
     await HiveService.instance.clear(AppConstants.timetableBox);
     _timetable.clear();
 
-    // 2. Put new entries
+    // Put new entries
     _timetable.addAll(entries);
     await _saveAllToHive();
 
     _isLoading = false;
     notifyListeners();
-  }
-
-  Future<void> updateCgpa(double current, double target) async {
-    _currentCgpa = current;
-    _targetCgpa = target;
-    notifyListeners();
-
-    await HiveService.instance.put(AppConstants.settingsBox, 'current_cgpa', current);
-    await HiveService.instance.put(AppConstants.settingsBox, 'target_cgpa', target);
   }
 
   Future<void> upsertEntry(TimetableEntry entry) async {
@@ -111,61 +79,5 @@ class CollegeProvider extends ChangeNotifier {
     for (final entry in _timetable) {
       await HiveService.instance.put(AppConstants.timetableBox, entry.id, entry.toJson());
     }
-  }
-
-  List<TimetableEntry> _seedTimetable() {
-    return const [
-      // Monday
-      TimetableEntry(
-        id: 'class-1',
-        subjectName: 'Data Structures',
-        subjectColor: '#6366F1',
-        startTime: '09:00',
-        endTime: '09:50',
-        room: 'L-403',
-        dayOfWeek: 1,
-        type: 'Lecture',
-      ),
-      TimetableEntry(
-        id: 'class-2',
-        subjectName: 'DBMS',
-        subjectColor: '#06B6D4',
-        startTime: '10:00',
-        endTime: '10:50',
-        room: 'L-403',
-        dayOfWeek: 1,
-        type: 'Lecture',
-      ),
-      TimetableEntry(
-        id: 'class-3',
-        subjectName: 'Operating Systems',
-        subjectColor: '#8B5CF6',
-        startTime: '11:10',
-        endTime: '12:00',
-        room: 'Room 401',
-        dayOfWeek: 1,
-        type: 'Lecture',
-      ),
-      TimetableEntry(
-        id: 'class-4',
-        subjectName: 'DS Lab',
-        subjectColor: '#10B981',
-        startTime: '13:00',
-        endTime: '14:00',
-        room: 'Lab 2',
-        dayOfWeek: 1,
-        type: 'Lab',
-      ),
-      TimetableEntry(
-        id: 'class-5',
-        subjectName: 'Computer Networks',
-        subjectColor: '#F59E0B',
-        startTime: '14:10',
-        endTime: '15:00',
-        room: 'L-403',
-        dayOfWeek: 1,
-        type: 'Lecture',
-      ),
-    ];
   }
 }

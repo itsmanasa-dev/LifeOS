@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import '../../features/dashboard/screens/dashboard_screen.dart';
 import '../../features/planner/screens/planner_screen.dart';
 import '../../features/college/screens/college_hub_screen.dart';
+import '../../features/college/screens/timetable_preview_screen.dart';
+import '../../features/college/models/timetable_model.dart';
 import '../../features/exams/screens/study_tracker_screen.dart';
 import '../../features/settings/screens/profile_settings_screen.dart';
 import '../../features/attendance/screens/subject_detail_screen.dart';
@@ -60,6 +62,13 @@ class AppRouter {
             path: AppRoutes.college,
             builder: (context, state) => const CollegeHubScreen(),
             routes: [
+              GoRoute(
+                path: 'import-preview',
+                builder: (context, state) {
+                  final rawEntries = state.extra as List<TimetableEntry>? ?? [];
+                  return TimetablePreviewScreen(initialEntries: rawEntries);
+                },
+              ),
               GoRoute(
                 path: 'subject/:id',
                 builder: (context, state) {

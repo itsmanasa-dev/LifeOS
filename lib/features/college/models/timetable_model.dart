@@ -8,6 +8,7 @@ class TimetableEntry {
     this.room,
     this.dayOfWeek = 1,
     this.type = 'Lecture',
+    this.lowConfidenceFields = const {},
   });
 
   final String id;
@@ -18,6 +19,7 @@ class TimetableEntry {
   final String? room;
   final int dayOfWeek;
   final String type;
+  final Set<String> lowConfidenceFields;
 
   factory TimetableEntry.fromJson(Map<String, dynamic> json) {
     return TimetableEntry(
@@ -29,6 +31,10 @@ class TimetableEntry {
       room: json['room'] as String?,
       dayOfWeek: json['dayOfWeek'] as int? ?? 1,
       type: json['type'] as String? ?? 'Lecture',
+      lowConfidenceFields: (json['lowConfidenceFields'] as List?)
+              ?.map((e) => e as String)
+              .toSet() ??
+          const {},
     );
   }
 
@@ -42,6 +48,7 @@ class TimetableEntry {
       'room': room,
       'dayOfWeek': dayOfWeek,
       'type': type,
+      'lowConfidenceFields': lowConfidenceFields.toList(),
     };
   }
 }
