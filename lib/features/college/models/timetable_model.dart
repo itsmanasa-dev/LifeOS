@@ -7,6 +7,7 @@ class TimetableEntry {
     required this.endTime,
     this.room,
     this.dayOfWeek = 1,
+    this.type = 'Lecture',
   });
 
   final String id;
@@ -16,6 +17,7 @@ class TimetableEntry {
   final String endTime;
   final String? room;
   final int dayOfWeek;
+  final String type;
 
   factory TimetableEntry.fromJson(Map<String, dynamic> json) {
     return TimetableEntry(
@@ -26,6 +28,7 @@ class TimetableEntry {
       endTime: json['endTime'] as String,
       room: json['room'] as String?,
       dayOfWeek: json['dayOfWeek'] as int? ?? 1,
+      type: json['type'] as String? ?? 'Lecture',
     );
   }
 
@@ -38,6 +41,7 @@ class TimetableEntry {
       'endTime': endTime,
       'room': room,
       'dayOfWeek': dayOfWeek,
+      'type': type,
     };
   }
 }

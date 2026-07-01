@@ -6,6 +6,7 @@ import '../../features/planner/screens/planner_screen.dart';
 import '../../features/college/screens/college_hub_screen.dart';
 import '../../features/exams/screens/study_tracker_screen.dart';
 import '../../features/settings/screens/profile_settings_screen.dart';
+import '../../features/attendance/screens/subject_detail_screen.dart';
 
 class AppRouter {
   AppRouter._();
@@ -58,6 +59,15 @@ class AppRouter {
           GoRoute(
             path: AppRoutes.college,
             builder: (context, state) => const CollegeHubScreen(),
+            routes: [
+              GoRoute(
+                path: 'subject/:id',
+                builder: (context, state) {
+                  final subjectId = state.pathParameters['id']!;
+                  return SubjectDetailScreen(subjectId: subjectId);
+                },
+              ),
+            ],
           ),
           GoRoute(
             path: AppRoutes.planner,

@@ -69,12 +69,14 @@ class AttendanceRecord {
     required this.subjectId,
     required this.date,
     required this.status, // 'present', 'absent', 'cancelled'
+    this.type = 'Lecture',
   });
 
   final String id;
   final String subjectId;
   final DateTime date;
   final String status;
+  final String type;
 
   factory AttendanceRecord.fromJson(Map<String, dynamic> json) {
     return AttendanceRecord(
@@ -82,6 +84,7 @@ class AttendanceRecord {
       subjectId: json['subjectId'] as String,
       date: DateTime.parse(json['date'] as String),
       status: json['status'] as String,
+      type: json['type'] as String? ?? 'Lecture',
     );
   }
 
@@ -91,6 +94,7 @@ class AttendanceRecord {
       'subjectId': subjectId,
       'date': date.toIso8601String(),
       'status': status,
+      'type': type,
     };
   }
 }

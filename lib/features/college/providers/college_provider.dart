@@ -65,6 +65,22 @@ class CollegeProvider extends ChangeNotifier {
     await _loadFromHive();
   }
 
+  Future<void> importTimetable(List<TimetableEntry> entries) async {
+    _isLoading = true;
+    notifyListeners();
+
+    // 1. Clear old timetable from Hive & Memory
+    await HiveService.instance.clear(AppConstants.timetableBox);
+    _timetable.clear();
+
+    // 2. Put new entries
+    _timetable.addAll(entries);
+    await _saveAllToHive();
+
+    _isLoading = false;
+    notifyListeners();
+  }
+
   Future<void> updateCgpa(double current, double target) async {
     _currentCgpa = current;
     _targetCgpa = target;
@@ -105,58 +121,50 @@ class CollegeProvider extends ChangeNotifier {
         subjectName: 'Data Structures',
         subjectColor: '#6366F1',
         startTime: '09:00',
-        endTime: '10:30',
-        room: 'Lab 2',
+        endTime: '09:50',
+        room: 'L-403',
         dayOfWeek: 1,
+        type: 'Lecture',
       ),
       TimetableEntry(
         id: 'class-2',
-        subjectName: 'Applied Math',
-        subjectColor: '#10B981',
-        startTime: '11:00',
-        endTime: '12:30',
+        subjectName: 'DBMS',
+        subjectColor: '#06B6D4',
+        startTime: '10:00',
+        endTime: '10:50',
         room: 'L-403',
         dayOfWeek: 1,
+        type: 'Lecture',
       ),
-      // Tuesday
       TimetableEntry(
         id: 'class-3',
         subjectName: 'Operating Systems',
-        subjectColor: '#06B6D4',
-        startTime: '09:00',
-        endTime: '10:30',
+        subjectColor: '#8B5CF6',
+        startTime: '11:10',
+        endTime: '12:00',
         room: 'Room 401',
-        dayOfWeek: 2,
+        dayOfWeek: 1,
+        type: 'Lecture',
       ),
-      // Wednesday
       TimetableEntry(
         id: 'class-4',
-        subjectName: 'Data Structures',
-        subjectColor: '#6366F1',
-        startTime: '09:00',
-        endTime: '10:30',
+        subjectName: 'DS Lab',
+        subjectColor: '#10B981',
+        startTime: '13:00',
+        endTime: '14:00',
         room: 'Lab 2',
-        dayOfWeek: 3,
+        dayOfWeek: 1,
+        type: 'Lab',
       ),
-      // Thursday
       TimetableEntry(
         id: 'class-5',
-        subjectName: 'User Experience',
-        subjectColor: '#8B5CF6',
-        startTime: '13:00',
-        endTime: '14:30',
-        room: 'Lab 4',
-        dayOfWeek: 4,
-      ),
-      // Friday
-      TimetableEntry(
-        id: 'class-6',
-        subjectName: 'Soft Skills',
+        subjectName: 'Computer Networks',
         subjectColor: '#F59E0B',
-        startTime: '10:00',
-        endTime: '11:30',
-        room: 'Seminar Room',
-        dayOfWeek: 5,
+        startTime: '14:10',
+        endTime: '15:00',
+        room: 'L-403',
+        dayOfWeek: 1,
+        type: 'Lecture',
       ),
     ];
   }
