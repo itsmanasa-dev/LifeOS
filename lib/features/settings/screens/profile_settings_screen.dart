@@ -318,15 +318,41 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   ),
                 ),
                 leading: const Icon(Icons.logout_rounded, color: AppTheme.errorColor),
-                onTap: () {
-                  context.read<AuthProvider>().signOut();
-                  context.go('/login');
-                },
+                onTap: () => _showLogoutConfirmation(context),
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  void _showLogoutConfirmation(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Log Out?'),
+          content: const Text('Are you sure you want to log out of your LifeOS workspace?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await context.read<AuthProvider>().signOut();
+                if (context.mounted) {
+                  context.go('/login');
+                }
+              },
+              style: FilledButton.styleFrom(backgroundColor: AppTheme.errorColor),
+              child: const Text('Log Out'),
+            ),
+          ],
+        );
+      },
     );
   }
 }
