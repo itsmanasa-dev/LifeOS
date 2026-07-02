@@ -1,25 +1,23 @@
-# Node dependencies
-web/node_modules/
+# Node modules
 node_modules/
+web/node_modules/
+
+# Production builds
+dist/
+web/dist/
 
 # Local env files
+.env
+.env.*
 web/.env
-web/.env.local
-web/.env.development.local
-web/.env.test.local
-web/.env.production.local
+web/.env.*
 
-# Build output
-web/dist/
-web/build/
+# Vite cache
+.vite/
+web/.vite/
 
-# IDE / System files
+# System / IDE files
 .vscode/
 .idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
 .DS_Store
 Thumbs.db
