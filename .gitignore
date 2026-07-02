@@ -1,0 +1,25 @@
+# Node dependencies
+web/node_modules/
+node_modules/
+
+# Local env files
+web/.env
+web/.env.local
+web/.env.development.local
+web/.env.test.local
+web/.env.production.local
+
+# Build output
+web/dist/
+web/build/
+
+# IDE / System files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db

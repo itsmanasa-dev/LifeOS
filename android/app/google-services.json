@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "634862114444",
+    "project_id": "lifeos-80f46",
+    "storage_bucket": "lifeos-80f46.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:634862114444:android:2325c858e09e05cee40da9",
+        "android_client_info": {
+          "package_name": "com.example.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAvKmA8YMJ9AUOdN7u7QZXgITnlS-LI1U0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
