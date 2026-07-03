@@ -8,9 +8,9 @@ import Splash from '../pages/Splash';
  * Redirects to /login if user is not authenticated.
  */
 export const ProtectedRoute: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isInitializing } = useAuthStore();
 
-  if (isLoading) {
+  if (isInitializing) {
     return <Splash />;
   }
 
@@ -26,9 +26,9 @@ export const ProtectedRoute: React.FC = () => {
  * Redirects to /dashboard if user is already authenticated.
  */
 export const PublicRoute: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isInitializing } = useAuthStore();
 
-  if (isLoading) {
+  if (isInitializing) {
     return <Splash />;
   }
 

@@ -6,9 +6,10 @@ import {
   sendEmailVerification as fbSendEmailVerification,
   signOut as fbSignOut,
   updateProfile,
+  GoogleAuthProvider,
 } from 'firebase/auth';
 import type { UserCredential } from 'firebase/auth';
-import { auth, googleProvider } from '../firebase/config';
+import { auth } from '../firebase/config';
 import { userService } from './userService';
 import type { UserModel } from '../types';
 
@@ -23,7 +24,6 @@ export const authService = {
         uid: firebaseUser.uid,
         fullName: firebaseUser.displayName || 'LifeOS User',
         email: firebaseUser.email || '',
-        photoUrl: firebaseUser.photoURL || undefined,
         provider: 'password',
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
@@ -31,6 +31,9 @@ export const authService = {
         onboardingCompleted: false,
         college: 'LifeOS University',
       };
+      if (firebaseUser.photoURL) {
+        user.photoUrl = firebaseUser.photoURL;
+      }
       await userService.saveUser(user);
     } else {
       user.lastLogin = new Date().toISOString();
@@ -50,7 +53,6 @@ export const authService = {
       uid: firebaseUser.uid,
       fullName: fullName,
       email: email,
-      photoUrl: firebaseUser.photoURL || undefined,
       provider: 'password',
       createdAt: new Date().toISOString(),
       lastLogin: new Date().toISOString(),
@@ -58,13 +60,20 @@ export const authService = {
       onboardingCompleted: false,
       college: 'LifeOS University',
     };
+    if (firebaseUser.photoURL) {
+      user.photoUrl = firebaseUser.photoURL;
+    }
 
     await userService.saveUser(user);
     return user;
   },
 
   async signInWithGoogle(): Promise<UserModel> {
-    const credential = await signInWithPopup(auth, googleProvider);
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: 'select_account',
+    });
+    const credential = await signInWithPopup(auth, provider);
     const firebaseUser = credential.user;
 
     let user = await userService.getUser(firebaseUser.uid);
@@ -73,7 +82,6 @@ export const authService = {
         uid: firebaseUser.uid,
         fullName: firebaseUser.displayName || 'LifeOS User',
         email: firebaseUser.email || '',
-        photoUrl: firebaseUser.photoURL || undefined,
         provider: 'google',
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
@@ -81,11 +89,16 @@ export const authService = {
         onboardingCompleted: false,
         college: 'LifeOS University',
       };
+      if (firebaseUser.photoURL) {
+        user.photoUrl = firebaseUser.photoURL;
+      }
       await userService.saveUser(user);
     } else {
       user.lastLogin = new Date().toISOString();
       user.fullName = firebaseUser.displayName || user.fullName;
-      user.photoUrl = firebaseUser.photoURL || user.photoUrl;
+      if (firebaseUser.photoURL) {
+        user.photoUrl = firebaseUser.photoURL;
+      }
       await userService.saveUser(user);
     }
     return user;

@@ -9,6 +9,7 @@ import type { UserModel } from '../types';
 interface AuthStoreState {
   user: UserModel | null;
   isAuthenticated: boolean;
+  isInitializing: boolean;
   isLoading: boolean;
   error: string | null;
   
@@ -27,40 +28,49 @@ interface AuthStoreState {
 export const useAuthStore = create<AuthStoreState>((set) => ({
   user: null,
   isAuthenticated: false,
-  isLoading: true, // Start as loading to allow session restoration
+  isInitializing: true, // Start as initializing to allow session restoration
+  isLoading: false,     // Action submission loading (Sign In / Sign Up)
   error: null,
 
   initialize: () => {
     // Set up Firebase auth state change listener
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
       try {
         if (firebaseUser) {
-          // Attempt to load profile from Firestore
-          const userProfile = await userService.getUser(firebaseUser.uid);
-          if (userProfile) {
-            set({ user: userProfile, isAuthenticated: true, isLoading: false, error: null });
-          } else {
-            // Fallback user if document is not found or still loading
-            const fallbackUser: UserModel = {
-              uid: firebaseUser.uid,
-              fullName: firebaseUser.displayName || 'LifeOS User',
-              email: firebaseUser.email || '',
-              photoUrl: firebaseUser.photoURL || undefined,
-              provider: firebaseUser.providerData[0]?.providerId || 'password',
-              createdAt: new Date().toISOString(),
-              lastLogin: new Date().toISOString(),
-              theme: 'dark',
-              onboardingCompleted: false,
-              college: 'LifeOS University',
-            };
-            set({ user: fallbackUser, isAuthenticated: true, isLoading: false, error: null });
+          // Immediately authenticate user with fallback profile from Auth token
+          const fallbackUser: UserModel = {
+            uid: firebaseUser.uid,
+            fullName: firebaseUser.displayName || 'LifeOS User',
+            email: firebaseUser.email || '',
+            provider: firebaseUser.providerData[0]?.providerId || 'password',
+            createdAt: new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+            theme: 'dark',
+            onboardingCompleted: false,
+            college: 'LifeOS University',
+          };
+          if (firebaseUser.photoURL) {
+            fallbackUser.photoUrl = firebaseUser.photoURL;
           }
+
+          set({ user: fallbackUser, isAuthenticated: true, isInitializing: false, error: null });
+
+          // Load full profile from Firestore asynchronously in the background
+          userService.getUser(firebaseUser.uid)
+            .then((userProfile) => {
+              if (userProfile) {
+                set({ user: userProfile });
+              }
+            })
+            .catch((err) => {
+              console.error('Background user profile load error:', err);
+            });
         } else {
-          set({ user: null, isAuthenticated: false, isLoading: false, error: null });
+          set({ user: null, isAuthenticated: false, isInitializing: false, error: null });
         }
       } catch (err: any) {
         console.error('Auth state change handler error:', err);
-        set({ user: null, isAuthenticated: false, isLoading: false, error: err.message });
+        set({ user: null, isAuthenticated: false, isInitializing: false, error: err.message });
       }
     });
 

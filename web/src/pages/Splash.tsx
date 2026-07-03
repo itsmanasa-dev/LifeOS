@@ -1,21 +1,7 @@
-import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
 import { Flame } from 'lucide-react';
 
 const Splash: React.FC = () => {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const checkSession = async () => {
-      // Simulate native SDK state initialization (1.5 seconds)
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      // For now, redirect to /login. In Phase 2, we will check Firebase Auth state
-      navigate('/login');
-    };
-
-    checkSession();
-  }, [navigate]);
-
   return (
     <div className="min-h-screen bg-dark-bg flex items-center justify-center bg-workspace">
       <div className="text-center flex flex-col items-center">

@@ -4,14 +4,14 @@ import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: "AIzaSyDlq5axei_TvTAoZrmDd7VxmB3GDfGYbrE",
+  authDomain: "lifeos-80f46.firebaseapp.com",
+  projectId: "lifeos-80f46",
+  storageBucket: "lifeos-80f46.firebasestorage.app",
+  messagingSenderId: "634862114444",
+  appId: "1:634862114444:web:7087ea9efb4aa7ffe40da9",
+  measurementId: "G-EPNM2216KG"
 };
-
 // Check if credentials are set (avoid crashing if not configured yet)
 const isConfigured = Object.values(firebaseConfig).every(val => !!val);
 
@@ -31,8 +31,8 @@ if (!isConfigured) {
 }
 
 // Initialize Firebase with real config or dummy config to prevent module loading crash
-const app = getApps().length === 0 
-  ? initializeApp(isConfigured ? firebaseConfig : dummyConfig) 
+const app = getApps().length === 0
+  ? initializeApp(isConfigured ? firebaseConfig : dummyConfig)
   : getApp();
 
 const auth = getAuth(app);

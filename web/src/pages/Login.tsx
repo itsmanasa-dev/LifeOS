@@ -47,6 +47,11 @@ const Login: React.FC = () => {
       toast.success('Logged in with Google!');
       navigate('/dashboard');
     } catch (err: any) {
+      console.error("Google Sign-In Error:", err);
+      if (err && typeof err === 'object') {
+        console.error(err.code);
+        console.error(err.message);
+      }
       toast.error(err.message || 'Google authentication failed.');
     }
   };
@@ -171,7 +176,7 @@ const Login: React.FC = () => {
             className="w-full border border-slate-800 bg-transparent hover:bg-slate-900 text-white font-bold py-3.5 px-4 rounded-2xl flex items-center justify-center space-x-2 transition-all duration-200 cursor-pointer disabled:opacity-50"
           >
             <img
-              src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.png"
+              src="/google.svg"
               alt="Google"
               className="w-4 h-4"
             />
