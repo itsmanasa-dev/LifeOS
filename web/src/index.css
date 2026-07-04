@@ -82,20 +82,22 @@
   background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
 }
 
-/* Custom form inputs style matching Flutter app */
-.input-field {
-  background-color: rgba(17, 24, 39, 0.4);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 14px;
-  padding: 12px 16px;
-  color: #F8FAFC;
-  transition: all 0.2s ease-in-out;
-}
+@layer base {
+  /* Custom form inputs style matching Flutter app */
+  .input-field {
+    background-color: rgba(17, 24, 39, 0.4);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 14px;
+    padding: 12px 16px;
+    color: #F8FAFC;
+    transition: all 0.2s ease-in-out;
+  }
 
-.input-field:focus {
-  outline: none;
-  border-color: #4F46E5;
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+  .input-field:focus {
+    outline: none;
+    border-color: #4F46E5;
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+  }
 }
 
 /* Hide navigation bar on desktop/tablet when sidebar layout is active */
