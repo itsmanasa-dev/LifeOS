@@ -4,8 +4,8 @@ import { useAuthStore } from '../store/useAuthStore';
 import { geminiService } from '../services/geminiService';
 import { 
   LogOut, Cloud, Key, SunMoon, Languages, Calendar, Clock, Sliders, 
-  Sparkles, Share2, Star, MessageSquare, ShoppingCart, Shield, FileText, 
-  Activity, HelpCircle, ChevronDown, ChevronUp 
+  Share2, Star, MessageSquare, Shield, FileText, 
+  HelpCircle, ChevronDown, ChevronUp 
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -22,7 +22,6 @@ const Settings: React.FC = () => {
   const [timeFormat, setTimeFormat] = useState(() => localStorage.getItem('pref_time_format') || '12 hours');
   const [roundTimer, setRoundTimer] = useState(() => localStorage.getItem('pref_round_timer') || 'Off');
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [crashReports, setCrashReports] = useState(true);
 
   // Original database credentials state
   const [cloudSync, setCloudSync] = useState(true);
@@ -62,19 +61,18 @@ const Settings: React.FC = () => {
       .toUpperCase();
   };
 
-  const restorePurchases = () => {
-    const loadingToast = toast.loading('Restoring previous purchases...');
-    setTimeout(() => {
-      toast.dismiss(loadingToast);
-      toast.success('All purchases restored successfully!');
-    }, 1500);
-  };
+
 
   return (
     <div className="space-y-6 max-w-lg mx-auto pb-20 px-4 font-sans">
-      {/* Title */}
-      <div className="text-left">
+      {/* Title & App Icon */}
+      <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-extrabold text-white tracking-tight">Settings</h1>
+        <img
+          src="/logo.png"
+          alt="LifeOS Logo"
+          className="w-10 h-10 rounded-xl shadow-lg border border-slate-800/40 object-cover"
+        />
       </div>
 
       {/* Name and Level Card */}
@@ -341,30 +339,9 @@ const Settings: React.FC = () => {
         </div>
       </div>
 
-      {/* Automation Section */}
+      {/* Support & About Section */}
       <div className="space-y-2">
-        <h3 className="text-[10px] font-bold text-dark-text-secondary uppercase tracking-wider px-2 text-left">Automation</h3>
-        <div className="glass rounded-3xl border border-slate-800/40 p-2 bg-[#0F172A]/20">
-          <div 
-            onClick={() => toast.success("Automation optimization runs in background automatically.")}
-            className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
-          >
-            <div className="flex items-center space-x-3.5">
-              <div className="p-2 bg-slate-800/40 rounded-xl text-dark-text-secondary">
-                <Sparkles className="w-5 h-5" />
-              </div>
-              <div className="text-left">
-                <h4 className="text-sm font-semibold text-white">Automation</h4>
-                <p className="text-xs text-dark-text-secondary mt-0.5">Smart schedule assistance</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Support Section */}
-      <div className="space-y-2">
-        <h3 className="text-[10px] font-bold text-dark-text-secondary uppercase tracking-wider px-2 text-left">Support</h3>
+        <h3 className="text-[10px] font-bold text-dark-text-secondary uppercase tracking-wider px-2 text-left">Support & About</h3>
         <div className="glass rounded-3xl border border-slate-800/40 p-2 space-y-1 bg-[#0F172A]/20">
           
           {/* Share */}
@@ -432,30 +409,6 @@ const Settings: React.FC = () => {
 
           <hr className="border-slate-800/30 m-0" />
 
-          {/* Restore purchases */}
-          <div 
-            onClick={restorePurchases}
-            className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
-          >
-            <div className="flex items-center space-x-3.5">
-              <div className="p-2 bg-slate-800/40 rounded-xl text-dark-text-secondary">
-                <ShoppingCart className="w-5 h-5" />
-              </div>
-              <div className="text-left">
-                <h4 className="text-sm font-semibold text-white">Restore purchases</h4>
-                <p className="text-xs text-dark-text-secondary mt-0.5">Recover previous transactions</p>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      {/* About Section */}
-      <div className="space-y-2">
-        <h3 className="text-[10px] font-bold text-dark-text-secondary uppercase tracking-wider px-2 text-left">About</h3>
-        <div className="glass rounded-3xl border border-slate-800/40 p-2 space-y-1 bg-[#0F172A]/20">
-          
           {/* Version */}
           <div 
             onClick={() => toast.success("Version 2.25.0 - Running latest build")}
@@ -504,51 +457,6 @@ const Settings: React.FC = () => {
               <div className="text-left">
                 <h4 className="text-sm font-semibold text-white">Privacy policy</h4>
                 <p className="text-xs text-dark-text-secondary mt-0.5">Read our privacy guidelines</p>
-              </div>
-            </div>
-          </div>
-
-          <hr className="border-slate-800/30 m-0" />
-
-          {/* Usage and crash reports */}
-          <div className="relative flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer">
-            <div className="flex items-center space-x-3.5">
-              <div className="p-2 bg-slate-800/40 rounded-xl text-dark-text-secondary">
-                <Activity className="w-5 h-5" />
-              </div>
-              <div className="text-left">
-                <h4 className="text-sm font-semibold text-white">Usage and crash reports</h4>
-                <p className="text-xs text-dark-text-secondary mt-0.5">{crashReports ? 'Enabled' : 'Disabled'}</p>
-              </div>
-            </div>
-            <select
-              value={crashReports ? 'Enabled' : 'Disabled'}
-              onChange={(e) => {
-                const enabled = e.target.value === 'Enabled';
-                setCrashReports(enabled);
-                toast.success(`Crash reports ${enabled ? 'enabled' : 'disabled'}`);
-              }}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            >
-              <option value="Enabled">Enabled</option>
-              <option value="Disabled">Disabled</option>
-            </select>
-          </div>
-
-          <hr className="border-slate-800/30 m-0" />
-
-          {/* Third-party licenses */}
-          <div 
-            onClick={() => toast.success("Redirecting to Third-party licenses...")}
-            className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
-          >
-            <div className="flex items-center space-x-3.5">
-              <div className="p-2 bg-slate-800/40 rounded-xl text-dark-text-secondary">
-                <FileText className="w-5 h-5" />
-              </div>
-              <div className="text-left">
-                <h4 className="text-sm font-semibold text-white">Third-party licenses</h4>
-                <p className="text-xs text-dark-text-secondary mt-0.5">View open-source package licenses</p>
               </div>
             </div>
           </div>
