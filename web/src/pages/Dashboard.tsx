@@ -4,27 +4,19 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCollegeStore } from '../store/useCollegeStore';
 import { useAttendanceStore } from '../store/useAttendanceStore';
 import { usePlannerStore } from '../store/usePlannerStore';
-import { Flame, ArrowRight, CheckCircle2, Circle, AlertTriangle, Calendar, Clock, MapPin, Compass } from 'lucide-react';
+import { useStudyStore } from '../store/useStudyStore';
+import { Flame, ArrowRight, CheckCircle2, Circle, AlertTriangle, Clock, Compass } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import toast from 'react-hot-toast';
-
-const insightData = [
-  { name: 'Mon', score: 60 },
-  { name: 'Tue', score: 72 },
-  { name: 'Wed', score: 68 },
-  { name: 'Thu', score: 85 },
-  { name: 'Fri', score: 80 },
-  { name: 'Sat', score: 92 },
-  { name: 'Sun', score: 84 },
-];
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   
   const { user } = useAuthStore();
-  const { getTodayEntries, loadTimetable } = useCollegeStore();
+  const { loadTimetable } = useCollegeStore();
   const { getOverallStats, loadAttendance } = useAttendanceStore();
   const { tasks, loadTasks, toggleComplete, isLoadingTasks: tasksLoading } = usePlannerStore();
+  const study = useStudyStore();
 
   const uid = user?.uid;
 
@@ -33,12 +25,37 @@ const Dashboard: React.FC = () => {
       loadTimetable(uid);
       loadAttendance(uid);
       loadTasks(uid);
+      study.loadStudyData(uid);
     }
   }, [uid, loadTimetable, loadAttendance, loadTasks]);
 
-  const todayEntries = getTodayEntries();
   const overallStats = getOverallStats();
   const isBelowTarget = overallStats.percentage < 75;
+
+  const getWeeklyInsightData = () => {
+    const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const data = labels.map(day => ({ name: day, score: 0 }));
+
+    const today = new Date();
+    const currentDay = today.getDay();
+    const distanceToMonday = currentDay === 0 ? 6 : currentDay - 1; // 0 represents Sunday
+    const mondayDate = new Date(today);
+    mondayDate.setDate(today.getDate() - distanceToMonday);
+
+    for (let i = 0; i < 7; i++) {
+      const targetDate = new Date(mondayDate);
+      targetDate.setDate(mondayDate.getDate() + i);
+      const dateStr = targetDate.toLocaleDateString('en-CA');
+      const seconds = study.dailyTotals[dateStr] || 0;
+      data[i].score = parseFloat((seconds / 3600).toFixed(1));
+    }
+    return data;
+  };
+
+  const insightChartData = getWeeklyInsightData();
+  const totalHoursThisWeek = insightChartData.reduce((sum, item) => sum + item.score, 0);
+  const dailyGoalHours = parseFloat((study.dailyGoal / 3600).toFixed(1));
+  const daysGoalMet = insightChartData.filter(d => d.score >= dailyGoalHours).length;
 
   // Get top 3 priority tasks (uncompleted, sorted by due date)
   const priorityTasks = tasks
@@ -72,18 +89,7 @@ const Dashboard: React.FC = () => {
     return fullName.trim().split(/\s+/)[0];
   };
 
-  const formatTime = (timeStr: string) => {
-    // Converts "09:00" to "09:00 AM" (or similar standard layout)
-    try {
-      const [hourStr, minStr] = timeStr.split(':');
-      const hour = parseInt(hourStr, 10);
-      const suffix = hour >= 12 ? 'PM' : 'AM';
-      const formattedHour = hour % 12 || 12;
-      return `${formattedHour}:${minStr} ${suffix}`;
-    } catch (e) {
-      return timeStr;
-    }
-  };
+
 
   return (
     <div className="space-y-8 pb-10">
@@ -109,42 +115,28 @@ const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Left Column: Welcomer & Insights */}
-        <div className="lg:col-span-2 space-y-6 flex flex-col justify-between">
-          {/* Greeting Card */}
-          <div className="glass rounded-3xl p-7 border border-slate-800/50 flex items-center justify-between relative overflow-hidden bg-workspace-gradient shadow-xl shadow-primary/5">
-            <div className="space-y-2 z-10">
-              <h2 className="text-2.5xl font-black text-white m-0">
-                Welcome, {getFirstName(user?.fullName || 'Alex')}!
-              </h2>
-              <p className="text-slate-150 text-sm max-w-sm font-medium">
-                Your schedule looks manageable today. Let's finish those tasks to maintain your streak!
-              </p>
-              <div className="inline-flex items-center space-x-2 bg-black/20 text-accent text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
-                <Flame className="w-3.5 h-3.5 fill-accent" />
-                <span>Level 3 Productivity</span>
-              </div>
-            </div>
-            <div className="absolute right-[-20px] bottom-[-20px] opacity-10 pointer-events-none">
-              <Flame className="w-48 h-48 text-white" />
-            </div>
-          </div>
-
-          {/* Weekly Insight Sparkline */}
+        <div className="lg:col-span-2 flex flex-col justify-between">
+          {/* Greeting & Weekly Insight Card merged */}
           <div className="glass rounded-3xl p-6 border border-slate-800/50 flex-1 flex flex-col justify-between">
-            <div>
-              <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider block mb-1">
-                Weekly Insight
-              </span>
-              <div className="flex items-baseline space-x-2">
-                <h3 className="text-3xl font-black text-white m-0">84%</h3>
-                <span className="text-xs text-dark-text-secondary font-semibold">Productivity Score</span>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h2 className="text-2.5xl font-black text-white m-0">
+                  Welcome, {getFirstName(user?.fullName || 'Alex')}!
+                </h2>
+                <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider block mt-1">
+                  Weekly Study Insight
+                </span>
+              </div>
+              <div className="text-left sm:text-right">
+                <h3 className="text-3.5xl font-black text-white m-0 font-mono">{totalHoursThisWeek.toFixed(1)} hrs</h3>
+                <span className="text-[9px] text-dark-text-secondary font-bold uppercase tracking-wider">Studied This Week</span>
               </div>
             </div>
             
             {/* Area Chart Sparkline */}
-            <div className="h-28 w-full my-4">
+            <div className="h-32 w-full my-4">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={insightData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                <AreaChart data={insightChartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
                   <defs>
                     <linearGradient id="scoreColor" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.4}/>
@@ -157,14 +149,14 @@ const Dashboard: React.FC = () => {
                     itemStyle={{ color: '#F8FAFC', fontSize: '13px' }}
                   />
                   <XAxis dataKey="name" hide />
-                  <YAxis domain={[50, 100]} hide />
+                  <YAxis hide />
                   <Area type="monotone" dataKey="score" stroke="#4F46E5" strokeWidth={3} fillOpacity={1} fill="url(#scoreColor)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
 
             <p className="text-xs text-dark-text-secondary leading-relaxed m-0 font-medium">
-              You're performing <span className="text-success font-bold">12% better</span> than last week. Focus blocks are being utilized effectively.
+              Daily study goal is <span className="text-white font-bold">{dailyGoalHours} hrs</span>. You met your goal on <span className="text-accent font-bold">{daysGoalMet} out of 7 days</span> this week.
             </p>
           </div>
         </div>
@@ -255,124 +247,66 @@ const Dashboard: React.FC = () => {
         <ArrowRight className="w-5 h-5 text-dark-text-secondary group-hover:text-white group-hover:translate-x-1 transition-all duration-200" />
       </div>
 
-      {/* Grid for Bottom Lists */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Priority Tasks List (Full Width/Centered layout) */}
+      <div className="space-y-4 max-w-3xl mx-auto">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-bold text-white m-0">Priority Tasks</h3>
+          <button
+            onClick={() => navigate('/planner')}
+            className="text-xs text-primary font-bold hover:underline cursor-pointer"
+          >
+            View all
+          </button>
+        </div>
 
-        {/* Today's Classes chronological list */}
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-bold text-white m-0">What's Next</h3>
-            <button
-              onClick={() => navigate('/college')}
-              className="text-xs text-primary font-bold hover:underline cursor-pointer"
-            >
-              View Calendar
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {todayEntries.length === 0 ? (
-              <div className="glass rounded-2xl p-6 border border-slate-800/50 text-center">
-                <p className="text-sm text-dark-text-secondary m-0">No upcoming classes today! 🎉</p>
-              </div>
-            ) : (
-              todayEntries.slice(0, 2).map((entry) => (
-                <div
-                  key={entry.id}
-                  onClick={() => navigate(`/college/subject/${entry.id}`)}
-                  className="glass rounded-2xl p-4 border border-slate-800/50 hover:border-slate-700/60 cursor-pointer flex items-center justify-between transition-all duration-200"
-                >
-                  <div className="flex items-center space-x-3.5">
-                    <div
-                      className="p-2.5 rounded-xl flex items-center justify-center"
-                      style={{ backgroundColor: `${entry.subjectColor}15` }}
+        <div className="space-y-3">
+          {tasksLoading ? (
+            <div className="glass rounded-2xl p-6 border border-slate-800/50 text-center">
+              <Loader2 className="w-5 h-5 animate-spin mx-auto text-dark-text-secondary" />
+            </div>
+          ) : priorityTasks.length === 0 ? (
+            <div className="glass rounded-2xl p-6 border border-slate-800/50 text-center">
+              <p className="text-sm text-dark-text-secondary m-0">No pending tasks. Tap View All to add.</p>
+            </div>
+          ) : (
+            priorityTasks.map((task) => (
+              <div
+                key={task.id}
+                className="glass rounded-2xl p-4 border border-slate-800/50 flex items-center justify-between hover:border-slate-700/60 transition-all duration-200"
+              >
+                <div className="flex items-center space-x-3.5 flex-1 min-w-0">
+                  <button
+                    onClick={() => handleToggleTask(task.id)}
+                    className="text-dark-text-secondary hover:text-white cursor-pointer focus:outline-none shrink-0"
+                  >
+                    {task.isCompleted ? (
+                      <CheckCircle2 className="w-5 h-5 text-primary" />
+                    ) : (
+                      <Circle className="w-5 h-5" />
+                    )}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <h4
+                      className={`text-sm font-bold truncate mb-0.5 ${
+                        task.isCompleted ? 'line-through text-dark-text-secondary font-medium' : 'text-white'
+                      }`}
                     >
-                      <Calendar className="w-5 h-5" style={{ color: entry.subjectColor }} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white mb-0.5">{entry.subjectName}</h4>
-                      <div className="flex items-center space-x-2 text-xs text-dark-text-secondary">
+                      {task.title}
+                    </h4>
+                    {task.dueDate && (
+                      <span className="text-xs text-dark-text-secondary flex items-center space-x-1">
                         <Clock className="w-3.5 h-3.5" />
-                        <span>{formatTime(entry.startTime)} – {formatTime(entry.endTime)}</span>
-                        {entry.room && (
-                          <>
-                            <span>|</span>
-                            <MapPin className="w-3.5 h-3.5" />
-                            <span>{entry.room}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
+                        <span>Due: {new Date(task.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </span>
+                    )}
                   </div>
-                  <ArrowRight className="w-4 h-4 text-slate-600" />
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Priority Tasks List */}
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-bold text-white m-0">Priority Tasks</h3>
-            <button
-              onClick={() => navigate('/planner')}
-              className="text-xs text-primary font-bold hover:underline cursor-pointer"
-            >
-              View all
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {tasksLoading ? (
-              <div className="glass rounded-2xl p-6 border border-slate-800/50 text-center">
-                <Loader2 className="w-5 h-5 animate-spin mx-auto text-dark-text-secondary" />
+                {/* Priority Dot */}
+                <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${getPriorityColor(task.priority)}`} />
               </div>
-            ) : priorityTasks.length === 0 ? (
-              <div className="glass rounded-2xl p-6 border border-slate-800/50 text-center">
-                <p className="text-sm text-dark-text-secondary m-0">No pending tasks. Tap View All to add.</p>
-              </div>
-            ) : (
-              priorityTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="glass rounded-2xl p-4 border border-slate-800/50 flex items-center justify-between hover:border-slate-700/60 transition-all duration-200"
-                >
-                  <div className="flex items-center space-x-3.5 flex-1 min-w-0">
-                    <button
-                      onClick={() => handleToggleTask(task.id)}
-                      className="text-dark-text-secondary hover:text-white cursor-pointer focus:outline-none shrink-0"
-                    >
-                      {task.isCompleted ? (
-                        <CheckCircle2 className="w-5 h-5 text-primary" />
-                      ) : (
-                        <Circle className="w-5 h-5" />
-                      )}
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <h4
-                        className={`text-sm font-bold truncate mb-0.5 ${
-                          task.isCompleted ? 'line-through text-dark-text-secondary font-medium' : 'text-white'
-                        }`}
-                      >
-                        {task.title}
-                      </h4>
-                      {task.dueDate && (
-                        <span className="text-xs text-dark-text-secondary flex items-center space-x-1">
-                          <Clock className="w-3.5 h-3.5" />
-                          <span>Due: {new Date(task.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {/* Priority Dot */}
-                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${getPriorityColor(task.priority)}`} />
-                </div>
-              ))
-            )}
-          </div>
+            ))
+          )}
         </div>
-
       </div>
     </div>
   );
