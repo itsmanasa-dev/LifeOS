@@ -11,6 +11,7 @@ import SubjectDetail from '../pages/SubjectDetail';
 import Planner from '../pages/Planner';
 import StudyTracker from '../pages/StudyTracker';
 import Settings from '../pages/Settings';
+import CompletedSyllabus from '../pages/CompletedSyllabus';
 import { ProtectedRoute, PublicRoute } from '../components/AuthGuard';
 
 export const router = createBrowserRouter([
@@ -70,6 +71,10 @@ export const router = createBrowserRouter([
           {
             path: 'govexam',
             element: <StudyTracker />,
+          },
+          {
+            path: 'govexam/completed',
+            element: <CompletedSyllabus />,
           },
           {
             path: 'settings',
