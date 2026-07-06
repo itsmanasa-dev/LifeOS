@@ -4,16 +4,14 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useStudyStore } from '../store/useStudyStore';
 import { 
   Flame, Play, Pause, Square, Plus, Trash2, Edit3, CheckCircle2, 
-  Search, Download, Award, AlertCircle, TrendingUp, 
-  Clock, BookOpen, ChevronLeft, ChevronRight, Volume2, VolumeX, Eye, 
+  Search, Award, AlertCircle, TrendingUp, 
+  Clock, BookOpen, Volume2, VolumeX, Eye, 
   AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import toast from 'react-hot-toast';
-import { collection, query, where, orderBy, limit, getDocs, startAfter } from 'firebase/firestore';
-import { db } from '../firebase/config';
-import type { StudySession, SyllabusNote, SyllabusNotePriority, SyllabusNoteStatus } from '../types';
+import type { SyllabusNote, SyllabusNotePriority, SyllabusNoteStatus } from '../types';
 
 const StudyTracker: React.FC = () => {
   const navigate = useNavigate();
@@ -53,7 +51,6 @@ const StudyTracker: React.FC = () => {
   // Tab Focus Distraction Stats
   const lastActiveTimestamp = useRef<number>(Date.now());
   const hiddenTimeAccumulated = useRef<number>(0);
-  const [distractionCount, setDistractionCount] = useState(0);
 
   // Syllabus Notes States
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -73,17 +70,9 @@ const StudyTracker: React.FC = () => {
   const [completedSubjectFilter, setCompletedSubjectFilter] = useState('all');
   const [completedPriorityFilter, setCompletedPriorityFilter] = useState('all');
 
-  // Analytics History Pagination
-  const [historySessions, setHistorySessions] = useState<StudySession[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [hasMoreHistory, setHasMoreHistory] = useState(true);
-  const [totalSessionsCount, setTotalSessionsCount] = useState(0);
-  const lastVisibleDoc = useRef<any>(null);
-  const firstVisibleDoc = useRef<any>(null);
-  const historyCache = useRef<{ [page: number]: { sessions: StudySession[], lastVisible: any, firstVisible: any } }>({});
 
-  const SESSIONS_PER_PAGE = 8;
+
+
 
   // Sound Notification Ref
   const alertSoundRef = useRef<HTMLAudioElement | null>(null);
@@ -92,8 +81,6 @@ const StudyTracker: React.FC = () => {
   useEffect(() => {
     if (uid) {
       study.loadStudyData(uid);
-      fetchTotalSessionsCount();
-      loadHistoryFirstPage();
     }
   }, [uid]);
 
@@ -127,7 +114,6 @@ const StudyTracker: React.FC = () => {
         const awayTime = Math.floor((Date.now() - lastActiveTimestamp.current) / 1000);
         if (awayTime > 5) {
           hiddenTimeAccumulated.current += awayTime;
-          setDistractionCount(prev => prev + 1);
           toast.custom((t) => (
             <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-slate-900 border border-amber-500/20 shadow-lg rounded-2xl pointer-events-auto flex ring-1 ring-black ring-opacity-5 p-4`}>
               <div className="flex-1 w-0">
@@ -343,12 +329,7 @@ const StudyTracker: React.FC = () => {
     study.stopAndSaveTimer(uid, finalNotes);
     setSessionNotes('');
     setStopSessionNotesInput('');
-    setDistractionCount(0);
     toast.success('Session saved to cloud!');
-    
-    // Refresh history
-    fetchTotalSessionsCount();
-    loadHistoryFirstPage();
   };
 
   const handleCancelSessionConfirm = () => {
@@ -356,7 +337,6 @@ const StudyTracker: React.FC = () => {
       setShowStopModal(false);
       study.cancelTimer(uid);
       setSessionNotes('');
-      setDistractionCount(0);
       toast('Timer discarded');
     }
   };
@@ -459,197 +439,9 @@ const StudyTracker: React.FC = () => {
   };
 
   // CSV Export logic
-  const handleCSVExport = async () => {
-    if (!uid) return;
-    const toastId = toast.loading('Fetching all sessions for export...');
-    try {
-      const q = query(
-        collection(db, 'study_sessions'),
-        where('userId', '==', uid),
-        orderBy('startTime', 'desc')
-      );
-      const querySnapshot = await getDocs(q);
-      const csvRows = [
-        ['Session ID', 'Start Date', 'Start Time', 'End Date', 'End Time', 'Duration (Seconds)', 'Duration (Formatted)', 'Notes', 'Device']
-      ];
 
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data() as StudySession;
-        
-        // Safety checks for timestamp structures
-        const startMs = data.startTime?.toMillis ? data.startTime.toMillis() : 0;
-        const endMs = data.endTime?.toMillis ? data.endTime.toMillis() : 0;
-        const startDate = new Date(startMs);
-        const endDate = new Date(endMs);
 
-        const durationStr = formatTimerString(data.duration);
-        
-        csvRows.push([
-          data.id,
-          startDate.toLocaleDateString(),
-          startDate.toLocaleTimeString(),
-          endDate.toLocaleDateString(),
-          endDate.toLocaleTimeString(),
-          data.duration.toString(),
-          durationStr,
-          `"${data.notes.replace(/"/g, '""')}"`,
-          data.device
-        ]);
-      });
 
-      const csvContent = csvRows.map(e => e.join(',')).join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `lifeos_study_history_${new Date().toLocaleDateString('en-CA')}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      toast.success('Study history exported successfully as CSV!', { id: toastId });
-    } catch (e) {
-      console.error('Failed to export CSV:', e);
-      toast.error('Failed to export study history.', { id: toastId });
-    }
-  };
-
-  // Pagination Logic
-  const fetchTotalSessionsCount = async () => {
-    try {
-      const q = query(collection(db, 'study_sessions'), where('userId', '==', uid));
-      const snap = await getDocs(q);
-      setTotalSessionsCount(snap.size);
-    } catch (e) {
-      console.error('Error fetching total session count:', e);
-    }
-  };
-
-  const loadHistoryFirstPage = async () => {
-    setIsLoadingHistory(true);
-    try {
-      const q = query(
-        collection(db, 'study_sessions'),
-        where('userId', '==', uid),
-        orderBy('startTime', 'desc'),
-        limit(SESSIONS_PER_PAGE)
-      );
-      
-      const snap = await getDocs(q);
-      const list: StudySession[] = [];
-      snap.forEach((docSnap) => {
-        list.push(docSnap.data() as StudySession);
-      });
-
-      lastVisibleDoc.current = snap.docs[snap.docs.length - 1];
-      firstVisibleDoc.current = snap.docs[0];
-      
-      setHistorySessions(list);
-      setHasMoreHistory(list.length === SESSIONS_PER_PAGE);
-      setCurrentPage(1);
-
-      // Cache page
-      historyCache.current = {
-        1: { sessions: list, lastVisible: lastVisibleDoc.current, firstVisible: firstVisibleDoc.current }
-      };
-
-    } catch (e) {
-      console.error('Failed to load study sessions:', e);
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  };
-
-  const handleNextPage = async () => {
-    if (isLoadingHistory || !hasMoreHistory || !lastVisibleDoc.current) return;
-    setIsLoadingHistory(true);
-    const nextPageNum = currentPage + 1;
-
-    // Check Cache first
-    if (historyCache.current[nextPageNum]) {
-      const cached = historyCache.current[nextPageNum];
-      setHistorySessions(cached.sessions);
-      lastVisibleDoc.current = cached.lastVisible;
-      firstVisibleDoc.current = cached.firstVisible;
-      setCurrentPage(nextPageNum);
-      setHasMoreHistory(cached.sessions.length === SESSIONS_PER_PAGE);
-      setIsLoadingHistory(false);
-      return;
-    }
-
-    try {
-      const q = query(
-        collection(db, 'study_sessions'),
-        where('userId', '==', uid),
-        orderBy('startTime', 'desc'),
-        startAfter(lastVisibleDoc.current),
-        limit(SESSIONS_PER_PAGE)
-      );
-
-      const snap = await getDocs(q);
-      const list: StudySession[] = [];
-      snap.forEach((docSnap) => {
-        list.push(docSnap.data() as StudySession);
-      });
-
-      if (list.length > 0) {
-        lastVisibleDoc.current = snap.docs[snap.docs.length - 1];
-        firstVisibleDoc.current = snap.docs[0];
-        
-        setHistorySessions(list);
-        setHasMoreHistory(list.length === SESSIONS_PER_PAGE);
-        setCurrentPage(nextPageNum);
-
-        // Cache
-        historyCache.current[nextPageNum] = {
-          sessions: list,
-          lastVisible: lastVisibleDoc.current,
-          firstVisible: firstVisibleDoc.current
-        };
-      } else {
-        setHasMoreHistory(false);
-      }
-    } catch (e) {
-      console.error('Failed loading next page:', e);
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  };
-
-  const handlePrevPage = () => {
-    if (isLoadingHistory || currentPage <= 1) return;
-    const prevPageNum = currentPage - 1;
-    const cached = historyCache.current[prevPageNum];
-    if (cached) {
-      setHistorySessions(cached.sessions);
-      lastVisibleDoc.current = cached.lastVisible;
-      firstVisibleDoc.current = cached.firstVisible;
-      setCurrentPage(prevPageNum);
-      setHasMoreHistory(true);
-    }
-  };
-
-  // Analytics Aggregation Engine
-  const getDailyChartData = () => {
-    const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const data = labels.map(day => ({ name: day, hours: 0 }));
-    
-    const today = new Date();
-    // Get Monday of current week
-    const currentDay = today.getDay();
-    const distanceToMonday = currentDay === 0 ? 6 : currentDay - 1; // 0 represents Sunday
-    const mondayDate = new Date(today);
-    mondayDate.setDate(today.getDate() - distanceToMonday);
-    
-    for (let i = 0; i < 7; i++) {
-      const targetDate = new Date(mondayDate);
-      targetDate.setDate(mondayDate.getDate() + i);
-      const dateStr = targetDate.toLocaleDateString('en-CA');
-      const seconds = study.dailyTotals[dateStr] || 0;
-      data[i].hours = parseFloat((seconds / 3600).toFixed(1));
-    }
-    return data;
-  };
 
   const getWeeklyChartData = () => {
     // Return last 4 weeks of study hours
@@ -675,57 +467,7 @@ const StudyTracker: React.FC = () => {
     return data;
   };
 
-  const getMonthlyChartData = () => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const data = months.map(m => ({ name: m, hours: 0 }));
-    
-    // Group totals by current year
-    const currentYear = new Date().getFullYear();
-    Object.entries(study.dailyTotals).forEach(([dateStr, durationSeconds]) => {
-      const [year, month] = dateStr.split('-');
-      if (parseInt(year, 10) === currentYear) {
-        const monthIndex = parseInt(month, 10) - 1;
-        if (monthIndex >= 0 && monthIndex < 12) {
-          data[monthIndex].hours += durationSeconds / 3600;
-        }
-      }
-    });
 
-    // Rounding
-    data.forEach(d => {
-      d.hours = parseFloat(d.hours.toFixed(1));
-    });
-
-    // Filter to last 6 months for clear display
-    const currentMonthIndex = new Date().getMonth();
-    const startIndex = (currentMonthIndex - 5 + 12) % 12;
-    const finalData = [];
-    for (let i = 0; i < 6; i++) {
-      const idx = (startIndex + i) % 12;
-      finalData.push(data[idx]);
-    }
-
-    return finalData;
-  };
-
-  const getYearlyChartData = () => {
-    const currentYear = new Date().getFullYear();
-    const years = [currentYear - 2, currentYear - 1, currentYear];
-    const data = years.map(y => ({ name: String(y), hours: 0 }));
-
-    Object.entries(study.dailyTotals).forEach(([dateStr, durationSeconds]) => {
-      const year = parseInt(dateStr.split('-')[0], 10);
-      const index = years.indexOf(year);
-      if (index !== -1) {
-        data[index].hours += durationSeconds / 3600;
-      }
-    });
-
-    data.forEach(d => {
-      d.hours = parseFloat(d.hours.toFixed(1));
-    });
-    return data;
-  };
 
   // Custom study heatmap renderer
   const renderHeatmap = () => {
@@ -800,15 +542,12 @@ const StudyTracker: React.FC = () => {
   // Badge Status check
   const getBadgeStatus = (badgeId: string) => {
     const completedNotesCount = study.completedSyllabus.length;
-    const maxSessionSecs = historySessions.length > 0 
-      ? Math.max(...historySessions.map(s => s.duration)) 
-      : 0;
 
     switch (badgeId) {
       case 'first_focus':
         return study.totalStudyTime > 0;
       case 'deep_worker':
-        return maxSessionSecs >= 7200; // 2 hours
+        return study.maxSessionDuration >= 7200; // 2 hours
       case 'habitual':
         return study.longestStreak >= 3;
       case 'consistent':
@@ -886,17 +625,7 @@ const StudyTracker: React.FC = () => {
     });
   };
 
-  const formatTimeRange = (startTs: any, endTs: any) => {
-    if (!startTs || !endTs) return '';
-    const start = startTs.toMillis ? new Date(startTs.toMillis()) : new Date(startTs);
-    const end = endTs.toMillis ? new Date(endTs.toMillis()) : new Date(endTs);
 
-    const is12 = study.timeDisplayFormat === '12h';
-    const sStr = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: is12 });
-    const eStr = end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: is12 });
-
-    return `${sStr} - ${eStr}`;
-  };
 
   // Progress ring variables
   const radius = 64;
@@ -909,13 +638,8 @@ const StudyTracker: React.FC = () => {
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-2.5">
+          <h1 className="text-3xl font-extrabold text-white tracking-tight">
             Study Mode
-            {study.isOnline ? (
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block" title="Online" />
-            ) : (
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" title="Offline Mode - caching changes locally" />
-            )}
           </h1>
           <p className="text-dark-text-secondary text-sm">Track focus duration, streaks, syllabus coverage and deep analytics.</p>
         </div>
@@ -1453,8 +1177,9 @@ const StudyTracker: React.FC = () => {
             className="space-y-6"
           >
             {/* Quick Aggregation stats */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               
+              {/* Total Time Logged */}
               <div className="glass rounded-3xl p-5 border border-slate-850 text-left space-y-1">
                 <div className="flex justify-between items-center text-dark-text-secondary">
                   <span className="text-[10px] font-bold uppercase tracking-wider">Total Time Logged</span>
@@ -1466,37 +1191,28 @@ const StudyTracker: React.FC = () => {
                 <span className="text-[9px] text-dark-text-secondary">Cumulative study hours</span>
               </div>
 
+              {/* Total Goal Maintained */}
               <div className="glass rounded-3xl p-5 border border-slate-850 text-left space-y-1">
                 <div className="flex justify-between items-center text-dark-text-secondary">
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Daily Goal Mean</span>
-                  <TrendingUp className="w-4 h-4 text-accent" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Total Goal Maintained</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 </div>
                 <div className="text-2xl font-black text-white font-mono">
-                  {parseFloat((study.totalStudyDays > 0 ? (study.totalStudyTime / study.totalStudyDays / 3600) : 0).toFixed(1))} hrs
+                  {Object.values(study.dailyTotals).filter(sec => sec >= study.dailyGoal).length} days
                 </div>
-                <span className="text-[9px] text-dark-text-secondary">Average duration per study day</span>
+                <span className="text-[9px] text-dark-text-secondary">Days daily study goal was met</span>
               </div>
 
+              {/* Streaks Card */}
               <div className="glass rounded-3xl p-5 border border-slate-850 text-left space-y-1">
                 <div className="flex justify-between items-center text-dark-text-secondary">
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Syllabus Completed</span>
-                  <BookOpen className="w-4 h-4 text-emerald-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Current / Max Streak</span>
+                  <Flame className="w-4 h-4 text-accent" />
                 </div>
                 <div className="text-2xl font-black text-white font-mono">
-                  {study.completedSyllabus.length} topics
+                  {study.currentStreak} / {study.longestStreak} days
                 </div>
-                <span className="text-[9px] text-dark-text-secondary">Topics cleared from syllabus</span>
-              </div>
-
-              <div className="glass rounded-3xl p-5 border border-slate-850 text-left space-y-1">
-                <div className="flex justify-between items-center text-dark-text-secondary">
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Distraction Index</span>
-                  <AlertCircle className="w-4 h-4 text-amber-500" />
-                </div>
-                <div className="text-2xl font-black text-white font-mono">
-                  {distractionCount} tabs left
-                </div>
-                <span className="text-[9px] text-dark-text-secondary">Tab leaves during this segment</span>
+                <span className="text-[9px] text-dark-text-secondary">Consistent days of study</span>
               </div>
 
             </div>
@@ -1520,102 +1236,30 @@ const StudyTracker: React.FC = () => {
               </div>
             </div>
 
-            {/* Analytics Charts Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              
-              {/* Daily Chart */}
-              <div className="glass rounded-3xl p-5 border border-slate-850 space-y-4">
-                <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider block text-left">
-                  Daily study hours (Current Week)
-                </span>
-                <div className="h-60 w-full text-xs">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={getDailyChartData()}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.03)" />
-                      <XAxis dataKey="name" stroke="#94A3B8" tickLine={false} />
-                      <YAxis stroke="#94A3B8" tickLine={false} />
-                      <Tooltip 
-                        contentStyle={{ background: '#0B1220', border: '1px solid rgba(148, 163, 184, 0.1)', borderRadius: '12px' }}
-                        labelStyle={{ color: '#F8FAFC', fontWeight: 'bold' }}
-                      />
-                      <Bar dataKey="hours" fill="#6366F1" radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+            {/* Weekly Study Hours Chart Card (Full Width) */}
+            <div className="glass rounded-3xl p-5 border border-slate-850 space-y-4">
+              <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider block text-left">
+                Weekly study hours (Last 4 Weeks)
+              </span>
+              <div className="h-64 w-full text-xs">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={getWeeklyChartData()}>
+                    <defs>
+                      <linearGradient id="weeklyGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#06B6D4" stopOpacity={0.25}/>
+                        <stop offset="95%" stopColor="#06B6D4" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.03)" />
+                    <XAxis dataKey="name" stroke="#94A3B8" tickLine={false} />
+                    <YAxis stroke="#94A3B8" tickLine={false} />
+                    <Tooltip
+                      contentStyle={{ background: '#0B1220', border: '1px solid rgba(148, 163, 184, 0.1)', borderRadius: '12px' }}
+                    />
+                    <Area type="monotone" dataKey="hours" stroke="#06B6D4" fillOpacity={1} fill="url(#weeklyGrad)" strokeWidth={2.5} />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
-
-              {/* Weekly Chart */}
-              <div className="glass rounded-3xl p-5 border border-slate-850 space-y-4">
-                <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider block text-left">
-                  Weekly study hours (Last 4 Weeks)
-                </span>
-                <div className="h-60 w-full text-xs">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={getWeeklyChartData()}>
-                      <defs>
-                        <linearGradient id="weeklyGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#06B6D4" stopOpacity={0.25}/>
-                          <stop offset="95%" stopColor="#06B6D4" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.03)" />
-                      <XAxis dataKey="name" stroke="#94A3B8" tickLine={false} />
-                      <YAxis stroke="#94A3B8" tickLine={false} />
-                      <Tooltip
-                        contentStyle={{ background: '#0B1220', border: '1px solid rgba(148, 163, 184, 0.1)', borderRadius: '12px' }}
-                      />
-                      <Area type="monotone" dataKey="hours" stroke="#06B6D4" fillOpacity={1} fill="url(#weeklyGrad)" strokeWidth={2.5} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Monthly Chart */}
-              <div className="glass rounded-3xl p-5 border border-slate-850 space-y-4">
-                <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider block text-left">
-                  Monthly study hours (Last 6 Months)
-                </span>
-                <div className="h-60 w-full text-xs">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={getMonthlyChartData()}>
-                      <defs>
-                        <linearGradient id="monthlyGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#6366F1" stopOpacity={0.25}/>
-                          <stop offset="95%" stopColor="#6366F1" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.03)" />
-                      <XAxis dataKey="name" stroke="#94A3B8" tickLine={false} />
-                      <YAxis stroke="#94A3B8" tickLine={false} />
-                      <Tooltip
-                        contentStyle={{ background: '#0B1220', border: '1px solid rgba(148, 163, 184, 0.1)', borderRadius: '12px' }}
-                      />
-                      <Area type="monotone" dataKey="hours" stroke="#6366F1" fillOpacity={1} fill="url(#monthlyGrad)" strokeWidth={2.5} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Yearly Chart */}
-              <div className="glass rounded-3xl p-5 border border-slate-850 space-y-4">
-                <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider block text-left">
-                  Yearly study hours (Last 3 Years)
-                </span>
-                <div className="h-60 w-full text-xs">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={getYearlyChartData()}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.03)" />
-                      <XAxis dataKey="name" stroke="#94A3B8" tickLine={false} />
-                      <YAxis stroke="#94A3B8" tickLine={false} />
-                      <Tooltip
-                        contentStyle={{ background: '#0B1220', border: '1px solid rgba(148, 163, 184, 0.1)', borderRadius: '12px' }}
-                      />
-                      <Bar dataKey="hours" fill="#06B6D4" radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
             </div>
 
             {/* Achievement Badges Grid */}
@@ -1649,95 +1293,6 @@ const StudyTracker: React.FC = () => {
                   );
                 })}
               </div>
-            </div>
-
-            {/* Paginated Session Logs Table */}
-            <div className="glass rounded-3xl border border-slate-850 text-left overflow-hidden">
-              <div className="p-5 border-b border-slate-850 flex justify-between items-center">
-                <div>
-                  <h4 className="text-sm font-bold text-white uppercase tracking-wider">Session logs</h4>
-                  <p className="text-[10px] text-dark-text-secondary mt-0.5">Showing historical log of sessions.</p>
-                </div>
-                <button
-                  onClick={handleCSVExport}
-                  className="bg-slate-950 hover:bg-slate-900 border border-slate-850 text-white text-[11px] font-bold px-3 py-2 rounded-xl cursor-pointer flex items-center space-x-1.5"
-                >
-                  <Download className="w-3.5 h-3.5 text-accent" />
-                  <span>Export CSV</span>
-                </button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-[11px]">
-                  <thead>
-                    <tr className="bg-slate-900/60 border-b border-slate-850 text-dark-text-secondary font-bold uppercase tracking-wider">
-                      <th className="py-3 px-6">Date</th>
-                      <th className="py-3 px-6">Time Range</th>
-                      <th className="py-3 px-6">Duration</th>
-                      <th className="py-3 px-6">Context Notes</th>
-                      <th className="py-3 px-6">Device</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-900">
-                    {isLoadingHistory ? (
-                      <tr>
-                        <td colSpan={5} className="py-8 text-center text-dark-text-secondary">
-                          Loading history logs...
-                        </td>
-                      </tr>
-                    ) : historySessions.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="py-8 text-center text-dark-text-secondary">
-                          No study session history logged yet. Start timer to record!
-                        </td>
-                      </tr>
-                    ) : (
-                      historySessions.map(session => (
-                        <tr key={session.id} className="hover:bg-slate-950/40">
-                          <td className="py-3.5 px-6 font-semibold text-white">{session.date}</td>
-                          <td className="py-3.5 px-6 font-mono text-dark-text-secondary">
-                            {formatTimeRange(session.startTime, session.endTime)}
-                          </td>
-                          <td className="py-3.5 px-6 font-mono font-bold text-white">
-                            {formatTimerString(session.duration)}
-                          </td>
-                          <td className="py-3.5 px-6 text-dark-text-secondary max-w-xs truncate" title={session.notes}>
-                            {session.notes}
-                          </td>
-                          <td className="py-3.5 px-6 text-dark-text-secondary">{session.device}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Pagination controls */}
-              {totalSessionsCount > SESSIONS_PER_PAGE && (
-                <div className="p-4 bg-slate-900/40 border-t border-slate-850 flex justify-between items-center text-xs">
-                  <span className="text-dark-text-secondary">
-                    Page <span className="text-white font-bold">{currentPage}</span> of <span className="text-white font-bold">{Math.ceil(totalSessionsCount / SESSIONS_PER_PAGE)}</span>
-                  </span>
-                  
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={handlePrevPage}
-                      disabled={currentPage === 1 || isLoadingHistory}
-                      className="p-1.5 bg-slate-950 hover:bg-slate-900 border border-slate-850 rounded-lg text-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={handleNextPage}
-                      disabled={!hasMoreHistory || isLoadingHistory}
-                      className="p-1.5 bg-slate-950 hover:bg-slate-900 border border-slate-850 rounded-lg text-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              )}
-
             </div>
 
           </motion.div>

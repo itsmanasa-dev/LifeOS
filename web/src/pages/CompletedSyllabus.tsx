@@ -57,8 +57,10 @@ const CompletedSyllabus: React.FC = () => {
   const handleDeleteItem = async (id: string) => {
     if (confirm('Are you sure you want to delete this topic from your completed logs?')) {
       try {
-        await deleteDoc(doc(db, 'completed_syllabus', id));
         setCompletedItems(prev => prev.filter(item => item.id !== id));
+        deleteDoc(doc(db, 'completed_syllabus', id)).catch(e => {
+          console.error('Failed to delete completed syllabus item in background:', e);
+        });
         toast.success('Completed item deleted.');
         
         // Also refresh global store

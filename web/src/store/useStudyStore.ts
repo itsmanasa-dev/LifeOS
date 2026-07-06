@@ -29,6 +29,7 @@ interface StudyStoreState {
   longestStreak: number;
   totalStudyDays: number;
   totalStudyTime: number; // in seconds
+  maxSessionDuration: number; // in seconds
   dailyTotals: { [date: string]: number }; // YYYY-MM-DD -> seconds
   
   // Lists
@@ -204,6 +205,7 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
     longestStreak: 0,
     totalStudyDays: 0,
     totalStudyTime: 0,
+    maxSessionDuration: 0,
     dailyTotals: {},
     syllabusNotes: [],
     completedSyllabus: [],
@@ -252,6 +254,7 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
             longestStreak: 0,
             totalStudyDays: 0,
             totalStudyTime: 0,
+            maxSessionDuration: 0,
             dailyTotals: {},
             lastUpdated: new Date().toISOString()
           };
@@ -340,6 +343,7 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
           longestStreak: streakData.longestStreak,
           totalStudyDays: streakData.totalStudyDays,
           totalStudyTime: statsData.totalStudyTime || 0,
+          maxSessionDuration: statsData.maxSessionDuration || 0,
           dailyTotals,
           syllabusNotes,
           completedSyllabus,
@@ -379,15 +383,15 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
           streak: streakData.currentStreak
         });
 
-        // Sync to Firestore
+        // Sync to Firestore in background
         const statsRef = doc(db, 'study_statistics', userId);
-        await setDoc(statsRef, { 
+        setDoc(statsRef, { 
           dailyGoal: seconds,
           currentStreak: streakData.currentStreak,
           longestStreak: streakData.longestStreak,
           totalStudyDays: streakData.totalStudyDays,
           lastUpdated: new Date().toISOString()
-        }, { merge: true });
+        }, { merge: true }).catch(err => console.error('Error syncing goal to Firestore:', err));
 
       } catch (err) {
         console.error('Error setting daily goal:', err);
@@ -432,21 +436,17 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
       localStorage.setItem(`lifeos_study_active_session_${userId}`, JSON.stringify(newSession));
       localStorage.setItem('lifeos_study_active_session_uid', userId);
 
-      // Persist in Firestore stats
-      try {
-        const statsRef = doc(db, 'study_statistics', userId);
-        await updateDoc(statsRef, {
-          activeSession: {
-            startTime: new Date(newSession.startTime!).toISOString(),
-            accumulatedSeconds: newSession.accumulatedSeconds,
-            isRunning: true,
-            notes: newSession.notes,
-            lastUpdated: new Date().toISOString()
-          }
-        });
-      } catch (e) {
-        console.error('Failed to sync timer start to Firestore:', e);
-      }
+      // Persist in Firestore stats (background call)
+      const statsRef = doc(db, 'study_statistics', userId);
+      updateDoc(statsRef, {
+        activeSession: {
+          startTime: new Date(newSession.startTime!).toISOString(),
+          accumulatedSeconds: newSession.accumulatedSeconds,
+          isRunning: true,
+          notes: newSession.notes,
+          lastUpdated: new Date().toISOString()
+        }
+      }).catch(e => console.error('Failed to sync timer start to Firestore:', e));
 
       // Start ticker
       startTicks();
@@ -461,15 +461,11 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
 
       localStorage.setItem(`lifeos_study_active_session_${userId}`, JSON.stringify(updated));
 
-      try {
-        const statsRef = doc(db, 'study_statistics', userId);
-        await updateDoc(statsRef, {
-          'activeSession.notes': notes,
-          'activeSession.lastUpdated': new Date().toISOString()
-        });
-      } catch (e) {
-        console.error('Failed to update session notes in Firestore:', e);
-      }
+      const statsRef = doc(db, 'study_statistics', userId);
+      updateDoc(statsRef, {
+        'activeSession.notes': notes,
+        'activeSession.lastUpdated': new Date().toISOString()
+      }).catch(e => console.error('Failed to update session notes in Firestore:', e));
     },
 
     pauseTimer: async (userId) => {
@@ -496,20 +492,16 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
 
       localStorage.setItem(`lifeos_study_active_session_${userId}`, JSON.stringify(pausedSession));
 
-      try {
-        const statsRef = doc(db, 'study_statistics', userId);
-        await updateDoc(statsRef, {
-          activeSession: {
-            startTime: null,
-            accumulatedSeconds: totalAccumulated,
-            isRunning: false,
-            notes: active.notes,
-            lastUpdated: new Date().toISOString()
-          }
-        });
-      } catch (e) {
-        console.error('Failed to sync pause state:', e);
-      }
+      const statsRef = doc(db, 'study_statistics', userId);
+      updateDoc(statsRef, {
+        activeSession: {
+          startTime: null,
+          accumulatedSeconds: totalAccumulated,
+          isRunning: false,
+          notes: active.notes,
+          lastUpdated: new Date().toISOString()
+        }
+      }).catch(e => console.error('Failed to sync pause state:', e));
     },
 
     stopAndSaveTimer: async (userId, sessionNotes) => {
@@ -556,13 +548,11 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
         device: deviceName
       };
 
-      // 1. Save to study_sessions in Firestore
+      // 1. Save to study_sessions in Firestore in background
       const sessionDocRef = doc(db, 'study_sessions', sessionId);
       let isQueuedLocally = false;
 
-      try {
-        await setDoc(sessionDocRef, newSession);
-      } catch (e) {
+      setDoc(sessionDocRef, newSession).catch(e => {
         console.warn('Firebase write failed. Caching offline session locally for recovery check.', e);
         const offlineQueue = JSON.parse(localStorage.getItem(`lifeos_offline_sessions_${userId}`) || '[]');
         offlineQueue.push({
@@ -572,7 +562,7 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
         });
         localStorage.setItem(`lifeos_offline_sessions_${userId}`, JSON.stringify(offlineQueue));
         isQueuedLocally = true;
-      }
+      });
 
       // 2. Update local state statistics
       const updatedDailyTotals = { ...get().dailyTotals };
@@ -580,6 +570,7 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
 
       const streakData = calculateStreaks(updatedDailyTotals, get().dailyGoal);
       const newTotalTime = get().totalStudyTime + finalDuration;
+      const newMaxSession = Math.max(get().maxSessionDuration || 0, finalDuration);
 
       set({
         activeSession: null,
@@ -590,6 +581,7 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
         longestStreak: streakData.longestStreak,
         totalStudyDays: streakData.totalStudyDays,
         totalStudyTime: newTotalTime,
+        maxSessionDuration: newMaxSession,
         
         // Backward compatibility
         streak: streakData.currentStreak,
@@ -600,21 +592,18 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
       localStorage.removeItem(`lifeos_study_active_session_${userId}`);
       localStorage.removeItem('lifeos_study_active_session_uid');
 
-      // 3. Update statistics document in Firestore
-      try {
-        const statsRef = doc(db, 'study_statistics', userId);
-        await updateDoc(statsRef, {
-          dailyTotals: updatedDailyTotals,
-          currentStreak: streakData.currentStreak,
-          longestStreak: streakData.longestStreak,
-          totalStudyDays: streakData.totalStudyDays,
-          totalStudyTime: newTotalTime,
-          activeSession: null,
-          lastUpdated: new Date().toISOString()
-        });
-      } catch (e) {
-        console.error('Failed to update stats in Firestore (cached natively):', e);
-      }
+      // 3. Update statistics document in Firestore in background
+      const statsRef = doc(db, 'study_statistics', userId);
+      updateDoc(statsRef, {
+        dailyTotals: updatedDailyTotals,
+        currentStreak: streakData.currentStreak,
+        longestStreak: streakData.longestStreak,
+        totalStudyDays: streakData.totalStudyDays,
+        totalStudyTime: newTotalTime,
+        maxSessionDuration: newMaxSession,
+        activeSession: null,
+        lastUpdated: new Date().toISOString()
+      }).catch(e => console.error('Failed to update stats in Firestore (cached natively):', e));
 
       // Sync offline queue if we are online now
       if (get().isOnline && isQueuedLocally) {
@@ -636,14 +625,10 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
       localStorage.removeItem(`lifeos_study_active_session_${userId}`);
       localStorage.removeItem('lifeos_study_active_session_uid');
 
-      try {
-        const statsRef = doc(db, 'study_statistics', userId);
-        await updateDoc(statsRef, {
-          activeSession: null
-        });
-      } catch (e) {
-        console.error('Failed to clear active session in Firestore:', e);
-      }
+      const statsRef = doc(db, 'study_statistics', userId);
+      updateDoc(statsRef, {
+        activeSession: null
+      }).catch(e => console.error('Failed to clear active session in Firestore:', e));
     },
 
     // ----------------------------------------------------
@@ -671,7 +656,7 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
           }))
         });
 
-        await setDoc(doc(db, 'syllabus_notes', noteId), newNote);
+        setDoc(doc(db, 'syllabus_notes', noteId), newNote).catch(err => console.error('Error adding syllabus note to firestore:', err));
       } catch (err) {
         console.error('Error adding syllabus note:', err);
       }
@@ -696,10 +681,10 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
           }))
         });
 
-        await updateDoc(doc(db, 'syllabus_notes', noteId), {
+        updateDoc(doc(db, 'syllabus_notes', noteId), {
           ...updates,
           updatedAt: new Date().toISOString()
-        });
+        }).catch(err => console.error('Error updating syllabus note in firestore:', err));
       } catch (err) {
         console.error('Error updating syllabus note:', err);
       }
@@ -718,7 +703,7 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
           }))
         });
 
-        await deleteDoc(doc(db, 'syllabus_notes', noteId));
+        deleteDoc(doc(db, 'syllabus_notes', noteId)).catch(err => console.error('Error deleting syllabus note in firestore:', err));
       } catch (err) {
         console.error('Error deleting syllabus note:', err);
       }
@@ -751,8 +736,8 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
           }))
         });
 
-        await deleteDoc(doc(db, 'syllabus_notes', noteId));
-        await setDoc(doc(db, 'completed_syllabus', noteId), completedItem);
+        deleteDoc(doc(db, 'syllabus_notes', noteId)).catch(err => console.error('Error deleting notes from active:', err));
+        setDoc(doc(db, 'completed_syllabus', noteId), completedItem).catch(err => console.error('Error adding notes to completed:', err));
 
       } catch (err) {
         console.error('Error completing syllabus note:', err);
@@ -764,7 +749,7 @@ export const useStudyStore = create<StudyStoreState>((set, get) => {
       try {
         const updatedCompleted = get().completedSyllabus.filter(n => n.id !== itemId);
         set({ completedSyllabus: updatedCompleted });
-        await deleteDoc(doc(db, 'completed_syllabus', itemId));
+        deleteDoc(doc(db, 'completed_syllabus', itemId)).catch(err => console.error('Error deleting completed syllabus item from firestore:', err));
       } catch (err) {
         console.error('Error deleting completed syllabus item:', err);
       }

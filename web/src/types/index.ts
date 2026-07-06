@@ -101,6 +101,7 @@ export interface StudyStatistics {
   longestStreak: number;
   totalStudyDays: number;
   totalStudyTime: number; // in seconds
+  maxSessionDuration: number; // in seconds
   dailyTotals: { [date: string]: number }; // date YYYY-MM-DD -> seconds
   lastUpdated: string; // ISO string
   activeSession?: {
