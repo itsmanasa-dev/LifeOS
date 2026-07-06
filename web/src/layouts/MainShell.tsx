@@ -53,13 +53,16 @@ const MainShell: React.FC = () => {
               <button
                 key={item.path}
                 onClick={() => navigate(item.path)}
-                className={`w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 relative group cursor-pointer ${
                   active
-                    ? 'bg-primary text-white shadow-lg shadow-primary/20 border border-primary/20'
-                    : 'text-dark-text-secondary hover:text-white hover:bg-slate-800/40'
+                    ? 'bg-slate-850 text-white border border-slate-800/30'
+                    : 'text-dark-text-secondary hover:text-white hover:bg-slate-850/50'
                 }`}
               >
-                <ActiveIcon className={`w-5 h-5 ${active ? 'text-white' : 'text-dark-text-secondary'}`} />
+                {active && (
+                  <div className="absolute left-1.5 top-2.5 bottom-2.5 w-1 bg-primary rounded-full" />
+                )}
+                <ActiveIcon className={`w-5 h-5 transition-transform duration-200 group-hover:scale-105 ${active ? 'text-primary' : 'text-dark-text-secondary'}`} />
                 <span>{item.label}</span>
               </button>
             );
@@ -88,20 +91,20 @@ const MainShell: React.FC = () => {
             <button
               key={item.path}
               onClick={() => navigate(item.path)}
-              className="flex flex-col items-center justify-center flex-1 py-1 px-2 rounded-xl transition-all duration-200"
+              className="flex flex-col items-center justify-center flex-1 py-1 px-2 rounded-xl transition-all duration-200 cursor-pointer"
             >
               <div
                 className={`p-2 rounded-xl transition-all duration-200 ${
                   active
-                    ? 'bg-primary/20 text-accent'
+                    ? 'bg-primary/10 text-primary'
                     : 'text-dark-text-secondary'
                 }`}
               >
-                <IconComponent className={`w-5 h-5 ${active ? 'text-accent' : 'text-dark-text-secondary'}`} />
+                <IconComponent className={`w-5 h-5 ${active ? 'text-primary' : 'text-dark-text-secondary'}`} />
               </div>
               <span
                 className={`text-[10px] mt-0.5 font-bold tracking-tight transition-colors duration-200 ${
-                  active ? 'text-accent' : 'text-dark-text-secondary'
+                  active ? 'text-primary' : 'text-dark-text-secondary'
                 }`}
               >
                 {item.label}

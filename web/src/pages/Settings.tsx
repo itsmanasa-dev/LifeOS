@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
 import { geminiService } from '../services/geminiService';
-import { 
-  LogOut, Cloud, Key, SunMoon, Languages, Calendar, Clock, Sliders, 
-  Share2, Star, MessageSquare, Shield, FileText, 
-  ChevronDown, ChevronUp 
+import {
+  LogOut, Cloud, Key, SunMoon, Languages, Calendar, Clock, Sliders,
+  Share2, Star, MessageSquare, Shield, FileText,
+  ChevronDown, ChevronUp
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -91,7 +91,7 @@ const Settings: React.FC = () => {
       <div className="space-y-2">
         <h3 className="text-[10px] font-bold text-dark-text-secondary uppercase tracking-wider px-2 text-left">Preferences</h3>
         <div className="glass rounded-3xl border border-slate-800/40 p-2 space-y-1 bg-[#0F172A]/20">
-          
+
           {/* Theme */}
           <div className="relative flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer">
             <div className="flex items-center space-x-3.5">
@@ -212,7 +212,7 @@ const Settings: React.FC = () => {
           <hr className="border-slate-800/30 m-0" />
 
           {/* Advanced Settings Expandable Row */}
-          <div 
+          <div
             onClick={() => setShowAdvanced(!showAdvanced)}
             className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
           >
@@ -287,9 +287,9 @@ const Settings: React.FC = () => {
       <div className="space-y-2">
         <h3 className="text-[10px] font-bold text-dark-text-secondary uppercase tracking-wider px-2 text-left">Support & About</h3>
         <div className="glass rounded-3xl border border-slate-800/40 p-2 space-y-1 bg-[#0F172A]/20">
-          
+
           {/* Share */}
-          <div 
+          <div
             onClick={() => {
               if (navigator.share) {
                 navigator.share({
@@ -318,9 +318,9 @@ const Settings: React.FC = () => {
           <hr className="border-slate-800/30 m-0" />
 
           {/* Rate and review */}
-          <div 
+          <div
             onClick={() => {
-              window.location.href = "mailto:manasaty433@gmail.com?subject=LifeOS Rate and Review Feedback";
+              window.location.href = "mailto:manasat433@gmail.com?subject=LifeOS Rate and Review Feedback";
             }}
             className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
           >
@@ -338,9 +338,9 @@ const Settings: React.FC = () => {
           <hr className="border-slate-800/30 m-0" />
 
           {/* Feedback and requests */}
-          <div 
+          <div
             onClick={() => {
-              window.location.href = "mailto:manasaty433@gmail.com?subject=LifeOS Feedback and Request";
+              window.location.href = "mailto:manasat433@gmail.com?subject=LifeOS Feedback and Request";
             }}
             className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
           >
@@ -358,7 +358,7 @@ const Settings: React.FC = () => {
           <hr className="border-slate-800/30 m-0" />
 
           {/* Terms of use */}
-          <div 
+          <div
             onClick={() => toast.success("Redirecting to Terms of Use...")}
             className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
           >
@@ -376,7 +376,7 @@ const Settings: React.FC = () => {
           <hr className="border-slate-800/30 m-0" />
 
           {/* Privacy policy */}
-          <div 
+          <div
             onClick={() => toast.success("Redirecting to Privacy Policy...")}
             className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
           >
