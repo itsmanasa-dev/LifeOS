@@ -26,6 +26,42 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, [initialize]);
 
+  useEffect(() => {
+    const applyTheme = () => {
+      const savedTheme = localStorage.getItem('pref_theme') || 'System default';
+      const root = window.document.documentElement;
+      
+      let isDark = true;
+      if (savedTheme === 'Light') {
+        isDark = false;
+      } else if (savedTheme === 'System default') {
+        isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+      
+      if (isDark) {
+        root.classList.add('dark');
+        root.classList.remove('light');
+        root.style.colorScheme = 'dark';
+      } else {
+        root.classList.add('light');
+        root.classList.remove('dark');
+        root.style.colorScheme = 'light';
+      }
+    };
+
+    applyTheme();
+    
+    // Listen to preferences updates and system theme updates
+    window.addEventListener('storage', applyTheme);
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    mediaQuery.addEventListener('change', applyTheme);
+    
+    return () => {
+      window.removeEventListener('storage', applyTheme);
+      mediaQuery.removeEventListener('change', applyTheme);
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       {!isConfigured && (

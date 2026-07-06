@@ -5,7 +5,7 @@ import { geminiService } from '../services/geminiService';
 import { 
   LogOut, Cloud, Key, SunMoon, Languages, Calendar, Clock, Sliders, 
   Share2, Star, MessageSquare, Shield, FileText, 
-  HelpCircle, ChevronDown, ChevronUp 
+  ChevronDown, ChevronUp 
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -18,9 +18,7 @@ const Settings: React.FC = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('pref_theme') || 'System default');
   const [language, setLanguage] = useState(() => localStorage.getItem('pref_language') || 'English');
   const [weekStart, setWeekStart] = useState(() => localStorage.getItem('pref_week_start') || 'Monday');
-  const [dayStart, setDayStart] = useState(() => localStorage.getItem('pref_day_start') || '12:00 AM');
   const [timeFormat, setTimeFormat] = useState(() => localStorage.getItem('pref_time_format') || '12 hours');
-  const [roundTimer, setRoundTimer] = useState(() => localStorage.getItem('pref_round_timer') || 'Off');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Original database credentials state
@@ -67,7 +65,7 @@ const Settings: React.FC = () => {
     <div className="space-y-6 max-w-lg mx-auto pb-20 px-4 font-sans">
       {/* Title & App Icon */}
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-extrabold text-white tracking-tight">Settings</h1>
+        <h1 className="text-3xl font-extrabold text-white tracking-tight">Profile</h1>
         <img
           src="/logo.png"
           alt="LifeOS Logo"
@@ -85,9 +83,7 @@ const Settings: React.FC = () => {
         </div>
         <div className="flex-1 text-left">
           <h2 className="text-base font-extrabold text-white leading-tight">{user?.fullName || 'Alex Chen'}</h2>
-          <p className="text-xs text-dark-text-secondary font-semibold mt-1">
-            Productivity Architect • Tier 3
-          </p>
+
         </div>
       </div>
 
@@ -112,6 +108,7 @@ const Settings: React.FC = () => {
               onChange={(e) => {
                 setTheme(e.target.value);
                 localStorage.setItem('pref_theme', e.target.value);
+                window.dispatchEvent(new Event('storage'));
                 toast.success(`Theme set to ${e.target.value}`);
               }}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
@@ -145,9 +142,16 @@ const Settings: React.FC = () => {
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             >
               <option value="English">English</option>
-              <option value="Spanish">Spanish</option>
-              <option value="German">German</option>
-              <option value="French">French</option>
+              <option value="Hindi">Hindi (हिन्दी)</option>
+              <option value="Telugu">Telugu (తెలుగు)</option>
+              <option value="Tamil">Tamil (தமிழ்)</option>
+              <option value="Marathi">Marathi (मराठी)</option>
+              <option value="Gujarati">Gujarati (ગુજરાતી)</option>
+              <option value="Kannada">Kannada (ಕನ್ನಡ)</option>
+              <option value="Malayalam">Malayalam (മലയാളം)</option>
+              <option value="Bengali">Bengali (বাংলা)</option>
+              <option value="Punjabi">Punjabi (ਪੰਜਾਬੀ)</option>
+              <option value="Odia">Odia (ଓଡ଼ିଆ)</option>
             </select>
           </div>
 
@@ -180,37 +184,6 @@ const Settings: React.FC = () => {
 
           <hr className="border-slate-800/30 m-0" />
 
-          {/* Day starts at */}
-          <div className="relative flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer">
-            <div className="flex items-center space-x-3.5">
-              <div className="p-2 bg-slate-800/40 rounded-xl text-dark-text-secondary">
-                <Clock className="w-5 h-5" />
-              </div>
-              <div className="text-left">
-                <h4 className="text-sm font-semibold text-white">Day starts at</h4>
-                <p className="text-xs text-dark-text-secondary mt-0.5">{dayStart}</p>
-              </div>
-            </div>
-            <select
-              value={dayStart}
-              onChange={(e) => {
-                setDayStart(e.target.value);
-                localStorage.setItem('pref_day_start', e.target.value);
-                toast.success(`Day starts at ${e.target.value}`);
-              }}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            >
-              <option value="12:00 AM">12:00 AM</option>
-              <option value="1:00 AM">1:00 AM</option>
-              <option value="5:00 AM">5:00 AM</option>
-              <option value="6:00 AM">6:00 AM</option>
-              <option value="7:00 AM">7:00 AM</option>
-              <option value="8:00 AM">8:00 AM</option>
-            </select>
-          </div>
-
-          <hr className="border-slate-800/30 m-0" />
-
           {/* Time format */}
           <div className="relative flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer">
             <div className="flex items-center space-x-3.5">
@@ -233,35 +206,6 @@ const Settings: React.FC = () => {
             >
               <option value="12 hours">12 hours</option>
               <option value="24 hours">24 hours</option>
-            </select>
-          </div>
-
-          <hr className="border-slate-800/30 m-0" />
-
-          {/* Round timer duration */}
-          <div className="relative flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer">
-            <div className="flex items-center space-x-3.5">
-              <div className="p-2 bg-slate-800/40 rounded-xl text-dark-text-secondary">
-                <Clock className="w-5 h-5" />
-              </div>
-              <div className="text-left">
-                <h4 className="text-sm font-semibold text-white">Round timer duration</h4>
-                <p className="text-xs text-dark-text-secondary mt-0.5">{roundTimer}</p>
-              </div>
-            </div>
-            <select
-              value={roundTimer}
-              onChange={(e) => {
-                setRoundTimer(e.target.value);
-                localStorage.setItem('pref_round_timer', e.target.value);
-                toast.success(`Round timer set to ${e.target.value}`);
-              }}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            >
-              <option value="Off">Off</option>
-              <option value="1 minute">1 minute</option>
-              <option value="5 minutes">5 minutes</option>
-              <option value="10 minutes">10 minutes</option>
             </select>
           </div>
 
@@ -375,7 +319,9 @@ const Settings: React.FC = () => {
 
           {/* Rate and review */}
           <div 
-            onClick={() => toast.success("Thank you for rating LifeOS! We appreciate your support.")}
+            onClick={() => {
+              window.location.href = "mailto:manasaty433@gmail.com?subject=LifeOS Rate and Review Feedback";
+            }}
             className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
           >
             <div className="flex items-center space-x-3.5">
@@ -393,7 +339,9 @@ const Settings: React.FC = () => {
 
           {/* Feedback and requests */}
           <div 
-            onClick={() => toast.success("Send us an email at support@lifeos.com with feedback!")}
+            onClick={() => {
+              window.location.href = "mailto:manasaty433@gmail.com?subject=LifeOS Feedback and Request";
+            }}
             className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
           >
             <div className="flex items-center space-x-3.5">
@@ -403,24 +351,6 @@ const Settings: React.FC = () => {
               <div className="text-left">
                 <h4 className="text-sm font-semibold text-white">Feedback and requests</h4>
                 <p className="text-xs text-dark-text-secondary mt-0.5">Report bugs or suggest features</p>
-              </div>
-            </div>
-          </div>
-
-          <hr className="border-slate-800/30 m-0" />
-
-          {/* Version */}
-          <div 
-            onClick={() => toast.success("Version 2.25.0 - Running latest build")}
-            className="flex items-center justify-between p-3.5 hover:bg-slate-800/20 transition-colors rounded-2xl cursor-pointer"
-          >
-            <div className="flex items-center space-x-3.5">
-              <div className="p-2 bg-slate-800/40 rounded-xl text-dark-text-secondary">
-                <HelpCircle className="w-5 h-5" />
-              </div>
-              <div className="text-left">
-                <h4 className="text-sm font-semibold text-white">Version</h4>
-                <p className="text-xs text-dark-text-secondary mt-0.5">2.25.0</p>
               </div>
             </div>
           </div>
