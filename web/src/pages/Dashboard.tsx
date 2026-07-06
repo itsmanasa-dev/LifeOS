@@ -3,11 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCollegeStore } from '../store/useCollegeStore';
 import { useAttendanceStore } from '../store/useAttendanceStore';
-import { usePlannerStore } from '../store/usePlannerStore';
 import { useStudyStore } from '../store/useStudyStore';
-import { Flame, ArrowRight, CheckCircle2, Circle, AlertTriangle, Clock, Compass } from 'lucide-react';
+import { Flame, ArrowRight, CheckCircle2, AlertTriangle, Compass } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
-import toast from 'react-hot-toast';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -15,7 +13,6 @@ const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
   const { loadTimetable } = useCollegeStore();
   const { getOverallStats, loadAttendance } = useAttendanceStore();
-  const { tasks, loadTasks, toggleComplete, isLoadingTasks: tasksLoading } = usePlannerStore();
   const study = useStudyStore();
 
   const uid = user?.uid;
@@ -24,10 +21,9 @@ const Dashboard: React.FC = () => {
     if (uid) {
       loadTimetable(uid);
       loadAttendance(uid);
-      loadTasks(uid);
       study.loadStudyData(uid);
     }
-  }, [uid, loadTimetable, loadAttendance, loadTasks]);
+  }, [uid, loadTimetable, loadAttendance]);
 
   const overallStats = getOverallStats();
   const isBelowTarget = overallStats.percentage < 75;
@@ -57,32 +53,7 @@ const Dashboard: React.FC = () => {
   const dailyGoalHours = parseFloat((study.dailyGoal / 3600).toFixed(1));
   const daysGoalMet = insightChartData.filter(d => d.score >= dailyGoalHours).length;
 
-  // Get top 3 priority tasks (uncompleted, sorted by due date)
-  const priorityTasks = tasks
-    .filter((t) => !t.isCompleted)
-    .slice(0, 3);
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'urgent':
-      case 'high':
-        return 'bg-error';
-      case 'medium':
-        return 'bg-warning';
-      default:
-        return 'bg-success';
-    }
-  };
-
-  const handleToggleTask = async (taskId: string) => {
-    if (!uid) return;
-    try {
-      await toggleComplete(uid, taskId);
-      toast.success('Task status updated!');
-    } catch (err) {
-      toast.error('Failed to update task.');
-    }
-  };
 
   const getFirstName = (fullName: string) => {
     if (!fullName) return 'User';
@@ -247,93 +218,38 @@ const Dashboard: React.FC = () => {
         <ArrowRight className="w-5 h-5 text-dark-text-secondary group-hover:text-white group-hover:translate-x-1 transition-all duration-200" />
       </div>
 
-      {/* Priority Tasks List (Full Width/Centered layout) */}
-      <div className="space-y-4 max-w-3xl mx-auto">
-        <div className="flex justify-between items-center">
-          <h3 className="text-lg font-bold text-white m-0">Priority Tasks</h3>
-          <button
-            onClick={() => navigate('/planner')}
-            className="text-xs text-primary font-bold hover:underline cursor-pointer"
-          >
-            View all
-          </button>
-        </div>
+      {/* Consistency Streak Card (Centered layout) */}
+      <div className="max-w-md mx-auto">
+        <div className="glass rounded-3xl p-6 border border-slate-850 flex flex-col justify-between items-center text-center shadow-xl">
+          <div className="w-full flex justify-between items-center border-b border-slate-800/50 pb-3 mb-3">
+            <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider">
+              Consistency Streak
+            </span>
+            <Flame className="w-4.5 h-4.5 text-accent animate-pulse" />
+          </div>
 
-        <div className="space-y-3">
-          {tasksLoading ? (
-            <div className="glass rounded-2xl p-6 border border-slate-800/50 text-center">
-              <Loader2 className="w-5 h-5 animate-spin mx-auto text-dark-text-secondary" />
+          <div className="space-y-3 my-2">
+            <div className="relative inline-block p-4 bg-primary/10 rounded-full border border-primary/20">
+              <Flame className="w-10 h-10 text-accent fill-accent" />
             </div>
-          ) : priorityTasks.length === 0 ? (
-            <div className="glass rounded-2xl p-6 border border-slate-800/50 text-center">
-              <p className="text-sm text-dark-text-secondary m-0">No pending tasks. Tap View All to add.</p>
-            </div>
-          ) : (
-            priorityTasks.map((task) => (
-              <div
-                key={task.id}
-                className="glass rounded-2xl p-4 border border-slate-800/50 flex items-center justify-between hover:border-slate-700/60 transition-all duration-200"
-              >
-                <div className="flex items-center space-x-3.5 flex-1 min-w-0">
-                  <button
-                    onClick={() => handleToggleTask(task.id)}
-                    className="text-dark-text-secondary hover:text-white cursor-pointer focus:outline-none shrink-0"
-                  >
-                    {task.isCompleted ? (
-                      <CheckCircle2 className="w-5 h-5 text-primary" />
-                    ) : (
-                      <Circle className="w-5 h-5" />
-                    )}
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <h4
-                      className={`text-sm font-bold truncate mb-0.5 ${
-                        task.isCompleted ? 'line-through text-dark-text-secondary font-medium' : 'text-white'
-                      }`}
-                    >
-                      {task.title}
-                    </h4>
-                    {task.dueDate && (
-                      <span className="text-xs text-dark-text-secondary flex items-center space-x-1">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>Due: {new Date(task.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {/* Priority Dot */}
-                <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${getPriorityColor(task.priority)}`} />
-              </div>
-            ))
-          )}
+            <h3 className="text-4xl font-extrabold text-white tracking-tight leading-none">
+              {study.currentStreak} Days
+            </h3>
+            <p className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider">
+              Record Streak: {study.longestStreak} days
+            </p>
+          </div>
+
+          <div className="w-full bg-slate-950 p-3 rounded-2xl border border-slate-900 text-left space-y-1 mt-2">
+            <span className="text-[9px] text-dark-text-secondary font-bold uppercase tracking-wider block">Streak Info</span>
+            <p className="text-[11px] text-dark-text-secondary leading-relaxed m-0 font-medium">
+              Study for at least <span className="text-white font-bold">{Math.round(study.dailyGoal / 3600)} hours</span> today to maintain your consistency streak.
+            </p>
+          </div>
         </div>
       </div>
     </div>
   );
 };
-
-// Simple loader helper
-const Loader2 = ({ className }: { className?: string }) => (
-  <svg
-    className={`animate-spin ${className}`}
-    xmlns="http://www.w3.org/2000/svg"
-    fill="none"
-    viewBox="0 0 24 24"
-  >
-    <circle
-      className="opacity-25"
-      cx="12"
-      cy="12"
-      r="10"
-      stroke="currentColor"
-      strokeWidth="4"
-    />
-    <path
-      className="opacity-75"
-      fill="currentColor"
-      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-    />
-  </svg>
-);
 
 export default Dashboard;

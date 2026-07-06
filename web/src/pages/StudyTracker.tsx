@@ -4,9 +4,8 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useStudyStore } from '../store/useStudyStore';
 import { 
   Flame, Play, Pause, Square, Plus, Trash2, Edit3, CheckCircle2, 
-  Search, Award, AlertCircle, TrendingUp, 
-  Clock, BookOpen, Volume2, VolumeX, Eye, 
-  AlertTriangle, RefreshCw
+  Search, AlertCircle, 
+  Clock, Eye, AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
@@ -27,26 +26,13 @@ const StudyTracker: React.FC = () => {
   const [customGoalHours, setCustomGoalHours] = useState('4');
 
   // Timer Related states
-  const [sessionNotes, setSessionNotes] = useState('');
   const [showFocusChecklist, setShowFocusChecklist] = useState(false);
   const [selectedFocusMode, setSelectedFocusMode] = useState<'dnd' | 'focus' | 'airplane' | null>(null);
   const [dndConfirmed, setDndConfirmed] = useState(false);
   const [airplaneVerified, setAirplaneVerified] = useState(false);
   const [isAirplaneChecking, setIsAirplaneChecking] = useState(false);
-  const [showStopModal, setShowStopModal] = useState(false);
-  const [stopSessionNotesInput, setStopSessionNotesInput] = useState('');
 
-  // Reminders Settings (Stored in LocalStorage)
-  const [breakReminderEnabled, setBreakReminderEnabled] = useState(() => {
-    return localStorage.getItem('lifeos_break_reminder_enabled') !== 'false';
-  });
-  const [studyReminderEnabled, setStudyReminderEnabled] = useState(() => {
-    return localStorage.getItem('lifeos_study_reminder_enabled') === 'true';
-  });
-  const [studyReminderTime, setStudyReminderTime] = useState(() => {
-    return localStorage.getItem('lifeos_study_reminder_time') || '18:00';
-  });
-  const [soundEnabled, setSoundEnabled] = useState(true);
+
 
   // Tab Focus Distraction Stats
   const lastActiveTimestamp = useRef<number>(Date.now());
@@ -74,8 +60,7 @@ const StudyTracker: React.FC = () => {
 
 
 
-  // Sound Notification Ref
-  const alertSoundRef = useRef<HTMLAudioElement | null>(null);
+
 
   // Init
   useEffect(() => {
@@ -144,96 +129,21 @@ const StudyTracker: React.FC = () => {
     };
   }, [study.activeSession?.isRunning]);
 
-  // Break Reminder ticking
-  const lastCheckedBreakRef = useRef(0);
-  useEffect(() => {
-    const seconds = study.secondsActive;
-    if (seconds > 0 && breakReminderEnabled) {
-      // 50 minutes = 3000 seconds
-      const minutesInterval = 50;
-      const secondsInterval = minutesInterval * 60;
-      
-      const intervalsPassed = Math.floor(seconds / secondsInterval);
-      if (intervalsPassed > lastCheckedBreakRef.current) {
-        lastCheckedBreakRef.current = intervalsPassed;
-        
-        // Trigger break reminder modal or alert
-        toast.custom((t) => (
-          <div className="max-w-md w-full bg-primary/10 border border-accent/40 shadow-2xl backdrop-blur-md rounded-3xl p-5 flex flex-col items-center text-center space-y-3">
-            <Clock className="w-12 h-12 text-accent animate-bounce" />
-            <h4 className="text-lg font-bold text-white">Time for a Break!</h4>
-            <p className="text-xs text-dark-text-secondary leading-relaxed">
-              You've been studying continuously for <span className="text-white font-bold">{intervalsPassed * minutesInterval} minutes</span>. Stand up, stretch, rest your eyes, and drink some water.
-            </p>
-            <button 
-              onClick={() => toast.dismiss(t.id)} 
-              className="bg-primary hover:bg-primary/95 text-white font-bold text-xs py-2 px-6 rounded-xl cursor-pointer"
-            >
-              Resume Focus
-            </button>
-          </div>
-        ), { duration: 10000 });
-        
-        playNotificationSound();
-      }
-    }
-    if (seconds === 0) {
-      lastCheckedBreakRef.current = 0;
-    }
-  }, [study.secondsActive, breakReminderEnabled]);
-
-  // Study reminder check in background
-  useEffect(() => {
-    if (!studyReminderEnabled) return;
-    
-    const checkInterval = setInterval(() => {
-      const todayStudied = study.dailyTotals[getTodayDateString()] || 0;
-      if (todayStudied > 0) return; // Already studied today
-
-      const now = new Date();
-      const currentHrs = String(now.getHours()).padStart(2, '0');
-      const currentMins = String(now.getMinutes()).padStart(2, '0');
-      const currentTimeStr = `${currentHrs}:${currentMins}`;
-
-      if (currentTimeStr === studyReminderTime) {
-        toast.custom((t) => (
-          <div className="max-w-sm w-full bg-slate-900 border border-primary/20 shadow-2xl rounded-2xl p-4 flex items-center space-x-3">
-            <Award className="w-8 h-8 text-primary animate-pulse" />
-            <div className="flex-1">
-              <p className="text-xs text-dark-text-secondary font-bold uppercase">Study Reminder</p>
-              <p className="text-sm font-semibold text-white">Time to study! Maintain your {study.currentStreak} day streak.</p>
-            </div>
-            <button onClick={() => toast.dismiss(t.id)} className="text-xs text-primary font-bold">Dismiss</button>
-          </div>
-        ), { duration: 15000 });
-        playNotificationSound();
-      }
-    }, 60000); // check every minute
-
-    return () => clearInterval(checkInterval);
-  }, [studyReminderEnabled, studyReminderTime, study.dailyTotals, study.currentStreak]);
-
   // Audio helper
   const playNotificationSound = () => {
-    if (!soundEnabled) return;
     try {
-      if (!alertSoundRef.current) {
-        // Simple synth audio generator when no file path is loaded
-        const context = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const osc = context.createOscillator();
-        const gain = context.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(523.25, context.currentTime); // C5
-        osc.connect(gain);
-        gain.connect(context.destination);
-        gain.gain.setValueAtTime(0.1, context.currentTime);
-        osc.start();
-        osc.stop(context.currentTime + 0.3);
-      } else {
-        alertSoundRef.current.play();
-      }
+      const context = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, context.currentTime); // C5
+      osc.connect(gain);
+      gain.connect(context.destination);
+      gain.gain.setValueAtTime(0.1, context.currentTime);
+      osc.start();
+      osc.stop(context.currentTime + 0.3);
     } catch (e) {
-      console.warn('Sound play blocked by browser autoplay settings.', e);
+      console.warn('Audio context alert could not play:', e);
     }
   };
 
@@ -304,7 +214,7 @@ const StudyTracker: React.FC = () => {
 
   const handleFocusChecklistConfirm = () => {
     setShowFocusChecklist(false);
-    study.startTimer(uid, sessionNotes);
+    study.startTimer(uid, 'Continuous study session');
     toast.success('Study session started! Stay focused.');
     // Reset confirmation variables
     setSelectedFocusMode(null);
@@ -319,25 +229,9 @@ const StudyTracker: React.FC = () => {
   };
 
   const handleStopClick = () => {
-    setStopSessionNotesInput(sessionNotes || study.activeSession?.notes || '');
-    setShowStopModal(true);
-  };
-
-  const handleSaveSessionConfirm = () => {
-    setShowStopModal(false);
-    const finalNotes = stopSessionNotesInput.trim() || 'Continuous study tracker log';
-    study.stopAndSaveTimer(uid, finalNotes);
-    setSessionNotes('');
-    setStopSessionNotesInput('');
-    toast.success('Session saved to cloud!');
-  };
-
-  const handleCancelSessionConfirm = () => {
-    if (confirm('Are you sure you want to cancel? This will delete the active segment.')) {
-      setShowStopModal(false);
-      study.cancelTimer(uid);
-      setSessionNotes('');
-      toast('Timer discarded');
+    if (confirm('Are you sure you want to stop and save your study session?')) {
+      study.stopAndSaveTimer(uid, 'Continuous study tracker log');
+      toast.success('Session saved to cloud!');
     }
   };
 
@@ -539,42 +433,7 @@ const StudyTracker: React.FC = () => {
     );
   };
 
-  // Badge Status check
-  const getBadgeStatus = (badgeId: string) => {
-    const completedNotesCount = study.completedSyllabus.length;
 
-    switch (badgeId) {
-      case 'first_focus':
-        return study.totalStudyTime > 0;
-      case 'deep_worker':
-        return study.maxSessionDuration >= 7200; // 2 hours
-      case 'habitual':
-        return study.longestStreak >= 3;
-      case 'consistent':
-        return study.longestStreak >= 7;
-      case 'academic_elite':
-        return study.longestStreak >= 14;
-      case 'century_focus':
-        return study.totalStudyTime >= 360000; // 100 hours
-      case 'topic_master':
-        return completedNotesCount >= 1;
-      case 'syllabus_conqueror':
-        return completedNotesCount >= 5;
-      default:
-        return false;
-    }
-  };
-
-  const badges = [
-    { id: 'first_focus', title: 'First Focus', desc: 'Complete 1st focus session', icon: Award },
-    { id: 'deep_worker', title: 'Deep Worker', desc: 'Study > 2 hrs in a session', icon: Clock },
-    { id: 'habitual', title: 'Habitual', desc: 'Achieve a 3-day streak', icon: Flame },
-    { id: 'consistent', title: 'Consistent', desc: 'Achieve a 7-day streak', icon: Flame },
-    { id: 'academic_elite', title: 'Academic Elite', desc: 'Achieve a 14-day streak', icon: Award },
-    { id: 'century_focus', title: 'Century Focus', desc: 'Study 100 hours total', icon: TrendingUp },
-    { id: 'topic_master', title: 'Topic Master', desc: 'Complete 1 syllabus topic', icon: BookOpen },
-    { id: 'syllabus_conqueror', title: 'Syllabus Conqueror', desc: 'Complete 5 syllabus topics', icon: BookOpen },
-  ];
 
   // Syllabus Notes columns sorting
   const getNotesByStatus = (status: SyllabusNoteStatus) => {
@@ -646,15 +505,6 @@ const StudyTracker: React.FC = () => {
 
         {/* Sync Indicator & Mode Selector */}
         <div className="flex items-center gap-3 self-stretch sm:self-auto bg-slate-900 p-1.5 rounded-2xl border border-slate-800/80">
-          <button
-            onClick={() => study.setTimeDisplayFormat(study.timeDisplayFormat === '12h' ? '24h' : '12h')}
-            className="text-[10px] font-bold px-3 py-2 bg-slate-950 text-dark-text-secondary hover:text-white rounded-xl border border-slate-850 cursor-pointer"
-          >
-            Format: {study.timeDisplayFormat}
-          </button>
-          
-          <div className="h-4 w-px bg-slate-800" />
-          
           {study.isSyncingOffline && (
             <span className="text-[10px] text-accent font-bold animate-pulse flex items-center gap-1">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -684,23 +534,24 @@ const StudyTracker: React.FC = () => {
       <AnimatePresence mode="wait">
         
         {/* TIMER TAB */}
+        {/* TIMER TAB */}
         {activeTab === 'timer' && (
           <motion.div
             key="timer-tab"
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
-            className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+            className="max-w-2xl mx-auto"
           >
-            {/* Primary Timer Card (col-span 2) */}
-            <div className="glass rounded-3xl p-6 border border-slate-850 flex flex-col justify-between items-center text-center shadow-2xl relative overflow-hidden lg:col-span-2">
+            {/* Primary Timer Card */}
+            <div className="glass rounded-3xl p-8 border border-slate-855 flex flex-col justify-between items-center text-center shadow-2xl relative overflow-hidden">
               
               {/* Background ambient light */}
               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
 
               <div className="w-full flex justify-between items-center border-b border-slate-850 pb-4 mb-6">
-                <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider">
-                  Continuous Focus Session
+                <span className="text-xs text-dark-text-secondary font-bold uppercase tracking-wider">
+                  Continuous Focus Timer
                 </span>
                 
                 {/* Daily target indicator */}
@@ -762,151 +613,48 @@ const StudyTracker: React.FC = () => {
                 </div>
               </div>
 
-              {/* Study Notes Textarea */}
-              <div className="w-full max-w-md my-4 space-y-2">
-                <label className="block text-[10px] text-left text-dark-text-secondary font-bold uppercase tracking-wider">
-                  Session Topic / Context
-                </label>
-                <input
-                  type="text"
-                  value={sessionNotes}
-                  onChange={(e) => {
-                    setSessionNotes(e.target.value);
-                    if (study.activeSession) {
-                      study.updateTimerNotes(uid, e.target.value);
-                    }
-                  }}
-                  placeholder="What subject are you studying right now?"
-                  className="w-full input-field text-sm"
-                />
-              </div>
-
               {/* Action Buttons */}
-              <div className="flex gap-4 w-full max-w-sm mt-4">
+              <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md mt-6 justify-center">
+                {study.activeSession && (
+                  <button
+                    onClick={() => {
+                      if (confirm('Discard this active segment? This cannot be undone.')) {
+                        study.cancelTimer(uid);
+                        toast('Timer discarded');
+                      }
+                    }}
+                    className="py-3 px-6 bg-slate-950 hover:bg-slate-900 border border-red-500/20 hover:border-red-500/40 text-red-400 font-bold text-xs rounded-2xl transition-all cursor-pointer"
+                  >
+                    Discard
+                  </button>
+                )}
+
                 {study.activeSession && (
                   <button
                     onClick={handleStopClick}
-                    className="flex-1 py-3.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:text-red-400 rounded-2xl text-white font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                    className="flex-1 py-3 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-white font-bold text-xs rounded-2xl transition-all cursor-pointer flex items-center justify-center space-x-1.5"
                   >
-                    <Square className="w-4 h-4" />
+                    <Square className="w-3.5 h-3.5" />
                     <span>Stop & Save</span>
                   </button>
                 )}
 
                 <button
                   onClick={study.activeSession?.isRunning ? handlePauseClick : handleStartTimerClick}
-                  className="flex-1 py-3.5 bg-primary hover:bg-primary/95 text-white font-bold text-xs flex items-center justify-center space-x-2 rounded-2xl transition-all cursor-pointer shadow-lg shadow-primary/25"
+                  className="flex-1 py-3 bg-primary hover:bg-primary/95 text-white font-bold text-xs rounded-2xl transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-lg shadow-primary/25"
                 >
                   {study.activeSession?.isRunning ? (
                     <>
-                      <Pause className="w-4 h-4" />
+                      <Pause className="w-3.5 h-3.5" />
                       <span>Pause Focus</span>
                     </>
                   ) : (
                     <>
-                      <Play className="w-4 h-4" />
+                      <Play className="w-3.5 h-3.5" />
                       <span>Start Studying</span>
                     </>
                   )}
                 </button>
-              </div>
-            </div>
-
-            {/* Sidebar Right Panel (col-span 1) */}
-            <div className="space-y-6">
-              
-              {/* Daily Streak Card */}
-              <div className="glass rounded-3xl p-5 border border-slate-850 flex flex-col justify-between items-center text-center shadow-xl">
-                <div className="w-full flex justify-between items-center border-b border-slate-850 pb-3 mb-3">
-                  <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider">
-                    Consistency Streak
-                  </span>
-                  <Flame className="w-4.5 h-4.5 text-accent animate-pulse" />
-                </div>
-
-                <div className="space-y-3 my-2">
-                  <div className="relative inline-block p-4 bg-primary/10 rounded-full border border-primary/20">
-                    <Flame className="w-10 h-10 text-accent fill-accent" />
-                  </div>
-                  <h3 className="text-4xl font-extrabold text-white tracking-tight leading-none">
-                    {study.currentStreak} Days
-                  </h3>
-                  <p className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider">
-                    Record Streak: {study.longestStreak} days
-                  </p>
-                </div>
-
-                <div className="w-full bg-slate-950 p-3 rounded-2xl border border-slate-900 text-left space-y-1 mt-2">
-                  <span className="text-[9px] text-dark-text-secondary font-bold uppercase tracking-wider block">Streak Info</span>
-                  <p className="text-[11px] text-dark-text-secondary leading-relaxed m-0 font-medium">
-                    Study for at least <span className="text-white font-bold">{Math.round(study.dailyGoal / 3600)} hours</span> today to maintain your consistency streak.
-                  </p>
-                </div>
-              </div>
-
-              {/* Reminders Settings Panel */}
-              <div className="glass rounded-3xl p-5 border border-slate-850 shadow-xl space-y-4 text-left">
-                <div className="border-b border-slate-850 pb-3 flex justify-between items-center">
-                  <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider">
-                    Alert Settings
-                  </span>
-                  <button 
-                    onClick={() => setSoundEnabled(!soundEnabled)} 
-                    className="p-1 hover:bg-slate-800 rounded-lg text-dark-text-secondary hover:text-white"
-                  >
-                    {soundEnabled ? <Volume2 className="w-4 h-4 text-accent" /> : <VolumeX className="w-4 h-4" />}
-                  </button>
-                </div>
-
-                {/* Break reminder toggle */}
-                <div className="flex justify-between items-center">
-                  <div>
-                    <label className="text-xs font-bold text-white block">Break Alert</label>
-                    <span className="text-[10px] text-dark-text-secondary">Notify to stretch every 50 mins</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={breakReminderEnabled}
-                    onChange={(e) => {
-                      setBreakReminderEnabled(e.target.checked);
-                      localStorage.setItem('lifeos_break_reminder_enabled', String(e.target.checked));
-                    }}
-                    className="w-4 h-4 rounded text-primary focus:ring-primary border-slate-800 bg-slate-950 cursor-pointer"
-                  />
-                </div>
-
-                {/* Study reminder toggle */}
-                <div className="flex justify-between items-center pt-2 border-t border-slate-900">
-                  <div>
-                    <label className="text-xs font-bold text-white block">Daily Study Reminder</label>
-                    <span className="text-[10px] text-dark-text-secondary">Warn if zero study logged by time</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={studyReminderEnabled}
-                    onChange={(e) => {
-                      setStudyReminderEnabled(e.target.checked);
-                      localStorage.setItem('lifeos_study_reminder_enabled', String(e.target.checked));
-                    }}
-                    className="w-4 h-4 rounded text-primary focus:ring-primary border-slate-800 bg-slate-950 cursor-pointer"
-                  />
-                </div>
-
-                {/* Reminder time selector */}
-                {studyReminderEnabled && (
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-[10px] text-dark-text-secondary">Reminder Time:</span>
-                    <input
-                      type="time"
-                      value={studyReminderTime}
-                      onChange={(e) => {
-                        setStudyReminderTime(e.target.value);
-                        localStorage.setItem('lifeos_study_reminder_time', e.target.value);
-                      }}
-                      className="bg-slate-950 text-xs text-white border border-slate-800 rounded-xl px-2 py-1 focus:outline-none"
-                    />
-                  </div>
-                )}
               </div>
             </div>
           </motion.div>
@@ -1262,38 +1010,7 @@ const StudyTracker: React.FC = () => {
               </div>
             </div>
 
-            {/* Achievement Badges Grid */}
-            <div className="glass rounded-3xl p-6 border border-slate-850 text-left space-y-4">
-              <div>
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Achievement Badges
-                </h4>
-                <p className="text-xs text-dark-text-secondary mt-0.5">Collect trophies by staying consistent and clearing syllabus goals.</p>
-              </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {badges.map((badge) => {
-                  const unlocked = getBadgeStatus(badge.id);
-                  const Icon = badge.icon;
-                  return (
-                    <div 
-                      key={badge.id}
-                      className={`p-4 rounded-2xl border text-center transition-all duration-200 ${
-                        unlocked 
-                          ? 'bg-primary/10 border-primary/25 text-white shadow-lg shadow-primary/5' 
-                          : 'bg-slate-950/40 border-slate-900 text-dark-text-secondary opacity-40'
-                      }`}
-                    >
-                      <div className="inline-block p-2 rounded-xl bg-slate-900 mb-2 border border-slate-850">
-                        <Icon className={`w-6 h-6 ${unlocked ? 'text-accent' : 'text-slate-650'}`} />
-                      </div>
-                      <h5 className="text-xs font-bold text-white truncate">{badge.title}</h5>
-                      <p className="text-[10px] text-dark-text-secondary mt-0.5 leading-snug">{badge.desc}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
 
           </motion.div>
         )}
@@ -1437,61 +1154,7 @@ const StudyTracker: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* STOP TIMER NOTES CONFIRMATION MODAL */}
-      <AnimatePresence>
-        {showStopModal && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-dark-card border border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4 text-left"
-            >
-              <div>
-                <h3 className="text-xl font-bold text-white">Save Study Session</h3>
-                <p className="text-xs text-dark-text-secondary mt-1">
-                  Add brief notes summarizing what you studied to complete the log.
-                </p>
-              </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-dark-text-secondary uppercase">Session Notes</label>
-                <textarea
-                  value={stopSessionNotesInput}
-                  onChange={(e) => setStopSessionNotesInput(e.target.value)}
-                  placeholder="e.g. Cleared chapter 3 history notes, completed quantitative aptitude practice quizzes."
-                  rows={3}
-                  className="w-full input-field text-xs resize-none"
-                />
-              </div>
-
-              <div className="flex justify-between items-center pt-2">
-                <button
-                  onClick={handleCancelSessionConfirm}
-                  className="text-xs text-red-400 hover:text-red-300 font-bold hover:underline cursor-pointer"
-                >
-                  Discard Session
-                </button>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowStopModal(false)}
-                    className="px-4 py-2.5 border border-slate-800 hover:bg-slate-900 rounded-2xl text-white text-xs font-bold cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveSessionConfirm}
-                    className="px-5 py-2.5 bg-primary hover:bg-primary/95 rounded-2xl text-white text-xs font-bold cursor-pointer"
-                  >
-                    Save Session
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* DAILY GOAL MODAL */}
       <AnimatePresence>
