@@ -396,12 +396,12 @@ const StudyTracker: React.FC = () => {
     }
 
     const getCellColor = (seconds: number) => {
-      if (seconds === 0) return 'bg-slate-900/60 border border-slate-800/20';
+      if (seconds === 0) return 'bg-slate-950 border border-slate-850/50';
       const hours = seconds / 3600;
-      if (hours < 1) return 'bg-primary/20 hover:bg-primary/30 border border-primary/10';
-      if (hours < 3) return 'bg-primary/45 hover:bg-primary/55';
-      if (hours < 5) return 'bg-primary/75 hover:bg-primary/85';
-      return 'bg-primary border border-accent/20 scale-[1.05] shadow-sm shadow-primary/30';
+      if (hours < 1) return 'bg-accent/15 border border-accent/10 hover:bg-accent/25';
+      if (hours < 3) return 'bg-accent/40 border border-accent/20 hover:bg-accent/50';
+      if (hours < 5) return 'bg-accent/70 hover:bg-accent/80';
+      return 'bg-accent border border-white/20 scale-[1.05] shadow-sm shadow-accent/30';
     };
 
     const getFormattedDuration = (seconds: number) => {
@@ -411,24 +411,65 @@ const StudyTracker: React.FC = () => {
       return `${hrs.toFixed(1)} hrs studied`;
     };
 
+    // Month labels helper
+    const getMonthLabel = (week: { dateStr: string }[]) => {
+      const firstDay = new Date(week[0].dateStr);
+      const dayOfMonth = firstDay.getDate();
+      if (dayOfMonth <= 7) {
+        return firstDay.toLocaleString('default', { month: 'short' });
+      }
+      return null;
+    };
+
     return (
-      <div className="flex gap-[3px] overflow-x-auto pb-3 pt-1 scrollbar-thin select-none max-w-full">
-        {weeksData.map((week, wkIdx) => (
-          <div key={wkIdx} className="flex flex-col gap-[3px] shrink-0">
-            {week.map((day, dayIdx) => (
-              <div
-                key={dayIdx}
-                className={`w-[12px] h-[12px] rounded-[3px] transition-all duration-200 cursor-help relative group ${getCellColor(day.seconds)}`}
-              >
-                {/* Tooltip */}
-                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 hidden group-hover:block z-50 pointer-events-none bg-slate-950 border border-slate-800/80 rounded-lg p-2 text-[10px] text-white font-semibold whitespace-nowrap shadow-2xl">
-                  {day.dateStr}
-                  <div className="text-accent text-[9px] font-bold uppercase tracking-wider">{getFormattedDuration(day.seconds)}</div>
-                </div>
+      <div className="space-y-1 select-none max-w-full">
+        {/* Months Row */}
+        <div className="flex gap-[3px] text-[9px] text-dark-text-secondary font-mono pr-2 h-4 relative">
+          <div className="w-6 shrink-0" /> {/* Spacer for day labels */}
+          {weeksData.map((week, wkIdx) => {
+            const label = getMonthLabel(week);
+            return (
+              <div key={wkIdx} className="w-[13px] shrink-0 text-left relative">
+                {label && (
+                  <span className="absolute left-0 bottom-0 whitespace-nowrap text-dark-text-secondary font-semibold">
+                    {label}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Days & Weeks Grid */}
+        <div className="flex gap-2 items-start overflow-x-auto pb-3 pt-1 scrollbar-thin">
+          {/* Day Labels Column */}
+          <div className="flex flex-col justify-between text-[9px] text-dark-text-secondary font-mono h-[109px] shrink-0 text-right pr-1.5 py-[2px]">
+            <span>Sun</span>
+            <span>Tue</span>
+            <span>Thu</span>
+            <span>Sat</span>
+          </div>
+
+          {/* Weeks */}
+          <div className="flex gap-[3px] shrink-0">
+            {weeksData.map((week, wkIdx) => (
+              <div key={wkIdx} className="flex flex-col gap-[3px] shrink-0">
+                {week.map((day, dayIdx) => (
+                  <div
+                    key={dayIdx}
+                    className={`w-[13px] h-[13px] rounded-[3px] transition-all duration-200 cursor-help relative group ${getCellColor(day.seconds)}`}
+                  >
+                    {/* Tooltip */}
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 hidden group-hover:block z-50 pointer-events-none bg-slate-950 border border-slate-800/80 rounded-lg p-2 text-[10px] text-white font-semibold whitespace-nowrap shadow-2xl">
+                      {day.dateStr}
+                      <div className="text-accent text-[9px] font-bold uppercase tracking-wider">{getFormattedDuration(day.seconds)}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
-        ))}
+        </div>
       </div>
     );
   };
@@ -974,11 +1015,11 @@ const StudyTracker: React.FC = () => {
               <div className="flex justify-between items-center text-[9px] text-dark-text-secondary font-medium px-1">
                 <span>Less active</span>
                 <div className="flex items-center gap-[3px]">
-                  <div className="w-[10px] h-[10px] bg-slate-900 rounded-[2px]" />
-                  <div className="w-[10px] h-[10px] bg-primary/20 rounded-[2px]" />
-                  <div className="w-[10px] h-[10px] bg-primary/45 rounded-[2px]" />
-                  <div className="w-[10px] h-[10px] bg-primary/75 rounded-[2px]" />
-                  <div className="w-[10px] h-[10px] bg-primary rounded-[2px]" />
+                  <div className="w-[11px] h-[11px] bg-slate-950 border border-slate-850/50 rounded-[2px]" />
+                  <div className="w-[11px] h-[11px] bg-accent/15 border border-accent/10 rounded-[2px]" />
+                  <div className="w-[11px] h-[11px] bg-accent/40 border border-accent/20 rounded-[2px]" />
+                  <div className="w-[11px] h-[11px] bg-accent/70 rounded-[2px]" />
+                  <div className="w-[11px] h-[11px] bg-accent rounded-[2px]" />
                 </div>
                 <span>More active</span>
               </div>
