@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# PWA Dev Server Output
+dev-dist
+dev-dist/*
