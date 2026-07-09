@@ -7,22 +7,22 @@
   
   --color-primary: #6366F1;
   --color-accent: #6366F1;
-  --color-success: #22C55E;
+  --color-success: #10B981;
   --color-warning: #F59E0B;
   --color-error: #EF4444;
 
-  --color-dark-bg: #0B1220;
-  --color-dark-surface: #111827;
-  --color-dark-card: #1F2937;
+  --color-dark-bg: #090B11;
+  --color-dark-surface: #0E121E;
+  --color-dark-card: #151A29;
   --color-dark-text-primary: #F8FAFC;
   --color-dark-text-secondary: #94A3B8;
   
-  --color-border: #334155;
+  --color-border: #1E293B;
 
-  --color-slate-950: #0B1220;
-  --color-slate-900: #111827;
-  --color-slate-850: #1F2937;
-  --color-slate-800: #334155;
+  --color-slate-950: #090B11;
+  --color-slate-900: #0E121E;
+  --color-slate-850: #151A29;
+  --color-slate-800: #1E293B;
 
   --radius-3xl: 20px;
   --radius-2xl: 14px;
@@ -88,26 +88,26 @@
   }
 }
 
-/* Glassmorphism Utilities */
+/* Glassmorphism & Bento Utilities */
 .glass {
-  background: rgba(31, 41, 55, 0.6) !important;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--color-border) !important;
+  background: rgba(21, 26, 41, 0.45) !important;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 main .glass:hover {
-  transform: translateY(-2px);
-  border-color: rgba(99, 102, 241, 0.35) !important;
-  box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.35);
+  transform: translateY(-1px);
+  border-color: rgba(99, 102, 241, 0.25) !important;
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.5);
 }
 
 .glass-accent {
-  background: rgba(99, 102, 241, 0.1);
+  background: rgba(99, 102, 241, 0.06);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.15);
 }
 
 /* Premium Workspace Gradient Background */
@@ -132,20 +132,20 @@ main .glass:hover {
 }
 
 @layer base {
-  /* Custom form inputs style matching Flutter app */
+  /* Custom form inputs style matching modern web design */
   .input-field {
-    background-color: rgba(17, 24, 39, 0.4);
-    border: 1px solid var(--color-border);
-    border-radius: 14px;
-    padding: 12px 16px;
+    background-color: rgba(9, 11, 17, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 10px 14px;
     color: #F8FAFC;
-    transition: all 0.2s ease-in-out;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .input-field:focus {
     outline: none;
-    border-color: #6366F1;
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+    border-color: rgba(99, 102, 241, 0.5);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
   }
 }
 
