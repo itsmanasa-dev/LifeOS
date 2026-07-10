@@ -19,6 +19,10 @@ export interface AttendanceSubject {
   targetPercentage: number;
   attendedCount: number;
   totalCount: number;
+  conducted: number;
+  present: number;
+  absent: number;
+  percentage: number;
 }
 
 export interface AttendanceRecord {
