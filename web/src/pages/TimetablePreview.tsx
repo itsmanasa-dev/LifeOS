@@ -19,7 +19,11 @@ const TimetablePreview: React.FC = () => {
 
   // Get initial entries passed from OCR uploader
   const initialEntries = (location.state as any)?.entries as TimetableEntry[] || [];
+  const imageUrl = (location.state as any)?.imageUrl || '';
+  const initialSemester = (location.state as any)?.semester || 'Semester 1';
+
   const [entries, setEntries] = useState<TimetableEntry[]>(initialEntries);
+  const [semester, setSemester] = useState<string>(initialSemester);
   const [confirmModal, setConfirmModal] = useState(false);
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -68,7 +72,7 @@ const TimetablePreview: React.FC = () => {
 
     toast.loading('Importing schedule layout...', { id: 'import' });
     try {
-      await college.importTimetable(uid, entries);
+      await college.importTimetable(uid, entries, semester, imageUrl);
       await attendance.syncSubjectsFromTimetable(uid, entries, keepHistory);
       toast.success(`Successfully imported ${entries.length} slots!`, { id: 'import' });
       navigate('/college');
@@ -92,7 +96,7 @@ const TimetablePreview: React.FC = () => {
           </button>
           <h1 className="text-3xl font-extrabold text-white tracking-tight">Review Extracted Data</h1>
           <p className="text-dark-text-secondary text-sm">
-            Modify timetable details parsed by Gemini AI before syncing them to your database.
+            Modify timetable details parsed locally before syncing them to your database.
           </p>
         </div>
         <button
@@ -115,7 +119,22 @@ const TimetablePreview: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* Semester Edit Input */}
+          <div className="glass rounded-3xl p-5 border border-slate-800/50 shadow-md max-w-sm">
+            <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">
+              Semester
+            </label>
+            <input
+              type="text"
+              value={semester}
+              onChange={(e) => setSemester(e.target.value)}
+              className="w-full input-field text-sm font-bold text-white bg-slate-950/40"
+              placeholder="e.g. Semester 3"
+              required
+            />
+          </div>
+
           <AnimatePresence>
             {entries.map((entry) => {
               const isLowConfidence = entry.lowConfidenceFields && entry.lowConfidenceFields.length > 0;
