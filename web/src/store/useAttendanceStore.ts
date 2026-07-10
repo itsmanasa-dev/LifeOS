@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, writeBatch, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import type { AttendanceSubject, AttendanceRecord, TimetableEntry } from '../types';
 
@@ -38,16 +38,28 @@ export const useAttendanceStore = create<AttendanceStoreState>((set, get) => ({
   loadAttendance: async (userId) => {
     set({ isLoading: true, error: null });
     try {
-      // 1. Fetch subjects
-      const qSub = query(collection(db, 'subjects'), where('userId', '==', userId));
+      // 1. Fetch subjects from 'attendance' collection
+      const qSub = query(collection(db, 'attendance'), where('userId', '==', userId));
       const subSnapshot = await getDocs(qSub);
       const subjectsList: AttendanceSubject[] = [];
       subSnapshot.forEach((docSnap) => {
-        subjectsList.push(docSnap.data() as AttendanceSubject);
+        const data = docSnap.data();
+        subjectsList.push({
+          id: data.id,
+          name: data.name,
+          color: data.color,
+          targetPercentage: data.targetPercentage ?? 75,
+          conducted: data.conducted ?? 0,
+          present: data.present ?? 0,
+          absent: data.absent ?? 0,
+          percentage: data.percentage ?? 100,
+          attendedCount: data.present ?? 0, // compatibility
+          totalCount: data.conducted ?? 0, // compatibility
+        } as AttendanceSubject);
       });
 
-      // 2. Fetch records
-      const qRec = query(collection(db, 'attendance_records'), where('userId', '==', userId));
+      // 2. Fetch records from 'attendance_logs' collection
+      const qRec = query(collection(db, 'attendance_logs'), where('userId', '==', userId));
       const recSnapshot = await getDocs(qRec);
       const recordsList: AttendanceRecord[] = [];
       recSnapshot.forEach((docSnap) => {
@@ -66,13 +78,26 @@ export const useAttendanceStore = create<AttendanceStoreState>((set, get) => ({
     try {
       const batch = writeBatch(db);
 
-      // 1. If reset logs, delete records
+      // 1. If reset logs, delete attendance logs
       if (!keepHistory) {
-        const qRec = query(collection(db, 'attendance_records'), where('userId', '==', userId));
+        const qRec = query(collection(db, 'attendance_logs'), where('userId', '==', userId));
         const recSnapshot = await getDocs(qRec);
         recSnapshot.forEach((docSnap) => {
           batch.delete(docSnap.ref);
         });
+        
+        // Also reset counts on existing subjects in memory and DB
+        const currentSubjects = get().subjects;
+        currentSubjects.forEach((sub) => {
+          const docRef = doc(db, 'attendance', sub.id);
+          batch.update(docRef, {
+            conducted: 0,
+            present: 0,
+            absent: 0,
+            percentage: 100,
+          });
+        });
+
         set({ records: [] });
       }
 
@@ -94,11 +119,16 @@ export const useAttendanceStore = create<AttendanceStoreState>((set, get) => ({
         const hasHistory = currentRecords.some((r) => r.subjectId === sub.id);
 
         if (existsInTimetable || (keepHistory && hasHistory)) {
-          finalSubjects.push(sub);
-          uniqueNames.delete(sub.name); // Already added
+          // If keeping history and subject counts were reset, update them locally
+          const updatedSub = {
+            ...sub,
+            ...(keepHistory ? {} : { conducted: 0, present: 0, absent: 0, percentage: 100, attendedCount: 0, totalCount: 0 }),
+          };
+          finalSubjects.push(updatedSub);
+          uniqueNames.delete(sub.name); // Already handled
         } else {
           // Remove from database
-          const docRef = doc(db, 'subjects', sub.id);
+          const docRef = doc(db, 'attendance', sub.id);
           batch.delete(docRef);
         }
       });
@@ -111,11 +141,15 @@ export const useAttendanceStore = create<AttendanceStoreState>((set, get) => ({
           name,
           color: nameToColor[name] || '#6366F1',
           targetPercentage: 75,
+          conducted: 0,
+          present: 0,
+          absent: 0,
+          percentage: 100,
           attendedCount: 0,
           totalCount: 0,
           userId,
         };
-        const docRef = doc(db, 'subjects', newSubId);
+        const docRef = doc(db, 'attendance', newSubId);
         batch.set(docRef, newSub);
         finalSubjects.push(newSub);
       });
@@ -137,57 +171,198 @@ export const useAttendanceStore = create<AttendanceStoreState>((set, get) => ({
       if (!subject) return;
 
       const recordId = `record-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-      const newRecord: AttendanceRecord & { userId: string } = {
+      const logDoc = {
         id: recordId,
         subjectId: subject.id,
+        subjectName,
         date,
         status: isPresent ? 'present' : 'absent',
         type,
         userId,
       };
 
-      const docRef = doc(db, 'attendance_records', recordId);
-      await setDoc(docRef, newRecord);
+      const logRef = doc(db, 'attendance_logs', recordId);
+      const subjectRef = doc(db, 'attendance', subject.id);
 
-      set((state) => ({
-        records: [...state.records, newRecord],
-      }));
+      // Perform transaction
+      await runTransaction(db, async (transaction) => {
+        const subDoc = await transaction.get(subjectRef);
+        if (!subDoc.exists()) {
+          throw new Error('Subject document does not exist!');
+        }
+
+        const data = subDoc.data() as AttendanceSubject;
+        const newConducted = (data.conducted || 0) + 1;
+        const newPresent = (data.present || 0) + (isPresent ? 1 : 0);
+        const newAbsent = (data.absent || 0) + (isPresent ? 0 : 1);
+        const newPercentage = newConducted > 0 ? (newPresent / newConducted) * 100 : 0;
+
+        transaction.set(logRef, logDoc);
+        transaction.update(subjectRef, {
+          conducted: newConducted,
+          present: newPresent,
+          absent: newAbsent,
+          percentage: newPercentage,
+        });
+      });
+
+      const updatedRecord = { ...logDoc, status: isPresent ? 'present' as const : 'absent' as const };
+
+      set((state) => {
+        const newRecords = [...state.records, updatedRecord];
+        const newSubjects = state.subjects.map((sub) => {
+          if (sub.id === subject.id) {
+            const newConducted = sub.conducted + 1;
+            const newPresent = sub.present + (isPresent ? 1 : 0);
+            const newAbsent = sub.absent + (isPresent ? 0 : 1);
+            const newPercentage = newConducted > 0 ? (newPresent / newConducted) * 100 : 0;
+            return {
+              ...sub,
+              conducted: newConducted,
+              present: newPresent,
+              absent: newAbsent,
+              percentage: newPercentage,
+              attendedCount: newPresent,
+              totalCount: newConducted,
+            };
+          }
+          return sub;
+        });
+        return { records: newRecords, subjects: newSubjects };
+      });
     } catch (err: any) {
-      console.error('Error logging attendance:', err);
+      console.error('Error logging attendance transactional:', err);
       throw err;
     }
   },
 
   toggleRecordStatus: async (recordId) => {
     try {
-      const current = get().records.find((r) => r.id === recordId);
-      if (!current) return;
+      const record = get().records.find((r) => r.id === recordId);
+      if (!record) return;
 
-      const newStatus = current.status === 'present' ? 'absent' : 'present';
-      const docRef = doc(db, 'attendance_records', recordId);
-      await updateDoc(docRef, { status: newStatus });
+      const oldStatus = record.status;
+      const newStatus = oldStatus === 'present' ? 'absent' : 'present';
+      const isPresentNow = newStatus === 'present';
 
-      set((state) => ({
-        records: state.records.map((r) =>
+      const logRef = doc(db, 'attendance_logs', recordId);
+      const subjectRef = doc(db, 'attendance', record.subjectId);
+
+      await runTransaction(db, async (transaction) => {
+        const subDoc = await transaction.get(subjectRef);
+        if (!subDoc.exists()) {
+          throw new Error('Subject document not found.');
+        }
+        const data = subDoc.data() as AttendanceSubject;
+        const conducted = data.conducted || 0;
+        let newPresent = data.present || 0;
+        let newAbsent = data.absent || 0;
+
+        if (isPresentNow) {
+          newPresent += 1;
+          newAbsent = Math.max(0, newAbsent - 1);
+        } else {
+          newPresent = Math.max(0, newPresent - 1);
+          newAbsent += 1;
+        }
+        const newPercentage = conducted > 0 ? (newPresent / conducted) * 100 : 0;
+
+        transaction.update(logRef, { status: newStatus });
+        transaction.update(subjectRef, {
+          present: newPresent,
+          absent: newAbsent,
+          percentage: newPercentage,
+        });
+      });
+
+      set((state) => {
+        const newRecords = state.records.map((r) =>
           r.id === recordId ? { ...r, status: newStatus as 'present' | 'absent' } : r
-        ),
-      }));
+        );
+        const newSubjects = state.subjects.map((sub) => {
+          if (sub.id === record.subjectId) {
+            let newPresent = sub.present;
+            let newAbsent = sub.absent;
+            if (isPresentNow) {
+              newPresent += 1;
+              newAbsent = Math.max(0, newAbsent - 1);
+            } else {
+              newPresent = Math.max(0, newPresent - 1);
+              newAbsent += 1;
+            }
+            const newPercentage = sub.conducted > 0 ? (newPresent / sub.conducted) * 100 : 0;
+            return {
+              ...sub,
+              present: newPresent,
+              absent: newAbsent,
+              percentage: newPercentage,
+              attendedCount: newPresent,
+              totalCount: sub.conducted,
+            };
+          }
+          return sub;
+        });
+        return { records: newRecords, subjects: newSubjects };
+      });
     } catch (err: any) {
-      console.error('Error toggling record status:', err);
+      console.error('Error toggling record status transactional:', err);
       throw err;
     }
   },
 
   deleteRecord: async (recordId) => {
     try {
-      const docRef = doc(db, 'attendance_records', recordId);
-      await deleteDoc(docRef);
+      const record = get().records.find((r) => r.id === recordId);
+      if (!record) return;
 
-      set((state) => ({
-        records: state.records.filter((r) => r.id !== recordId),
-      }));
+      const isPresent = record.status === 'present';
+      const logRef = doc(db, 'attendance_logs', recordId);
+      const subjectRef = doc(db, 'attendance', record.subjectId);
+
+      await runTransaction(db, async (transaction) => {
+        const subDoc = await transaction.get(subjectRef);
+        if (!subDoc.exists()) {
+          throw new Error('Subject document not found.');
+        }
+        const data = subDoc.data() as AttendanceSubject;
+        const newConducted = Math.max(0, (data.conducted || 0) - 1);
+        const newPresent = isPresent ? Math.max(0, (data.present || 0) - 1) : (data.present || 0);
+        const newAbsent = !isPresent ? Math.max(0, (data.absent || 0) - 1) : (data.absent || 0);
+        const newPercentage = newConducted > 0 ? (newPresent / newConducted) * 100 : 100;
+
+        transaction.delete(logRef);
+        transaction.update(subjectRef, {
+          conducted: newConducted,
+          present: newPresent,
+          absent: newAbsent,
+          percentage: newPercentage,
+        });
+      });
+
+      set((state) => {
+        const newRecords = state.records.filter((r) => r.id !== recordId);
+        const newSubjects = state.subjects.map((sub) => {
+          if (sub.id === record.subjectId) {
+            const newConducted = Math.max(0, sub.conducted - 1);
+            const newPresent = isPresent ? Math.max(0, sub.present - 1) : sub.present;
+            const newAbsent = !isPresent ? Math.max(0, sub.absent - 1) : sub.absent;
+            const newPercentage = newConducted > 0 ? (newPresent / newConducted) * 100 : 100;
+            return {
+              ...sub,
+              conducted: newConducted,
+              present: newPresent,
+              absent: newAbsent,
+              percentage: newPercentage,
+              attendedCount: newPresent,
+              totalCount: newConducted,
+            };
+          }
+          return sub;
+        });
+        return { records: newRecords, subjects: newSubjects };
+      });
     } catch (err: any) {
-      console.error('Error deleting record:', err);
+      console.error('Error deleting record transactional:', err);
       throw err;
     }
   },
@@ -200,12 +375,16 @@ export const useAttendanceStore = create<AttendanceStoreState>((set, get) => ({
         name,
         color,
         targetPercentage,
+        conducted: 0,
+        present: 0,
+        absent: 0,
+        percentage: 100,
         attendedCount: 0,
         totalCount: 0,
         userId,
       };
 
-      const docRef = doc(db, 'subjects', subId);
+      const docRef = doc(db, 'attendance', subId);
       await setDoc(docRef, newSub);
 
       set((state) => ({
@@ -220,14 +399,13 @@ export const useAttendanceStore = create<AttendanceStoreState>((set, get) => ({
   deleteSubject: async (subjectId) => {
     try {
       const batch = writeBatch(db);
-      // Delete subject
-      const subRef = doc(db, 'subjects', subjectId);
+      
+      const subRef = doc(db, 'attendance', subjectId);
       batch.delete(subRef);
 
-      // Delete all matching records
       const matchingRecords = get().records.filter((r) => r.subjectId === subjectId);
       matchingRecords.forEach((r) => {
-        const recRef = doc(db, 'attendance_records', r.id);
+        const recRef = doc(db, 'attendance_logs', r.id);
         batch.delete(recRef);
       });
 
@@ -244,34 +422,38 @@ export const useAttendanceStore = create<AttendanceStoreState>((set, get) => ({
   },
 
   getSubjectsWithStats: () => {
-    const { subjects, records } = get();
-    return subjects.map((sub) => {
-      const subRecords = records.filter((r) => r.subjectId === sub.id);
-      const attended = subRecords.filter((r) => r.status === 'present').length;
-      const total = subRecords.length;
-
-      return {
-        ...sub,
-        attendedCount: attended,
-        totalCount: total,
-      };
-    });
+    return get().subjects;
   },
 
   getOverallStats: () => {
-    const { records } = get();
-    const total = records.length;
-    if (total === 0) {
+    const { subjects } = get();
+    let totalConducted = 0;
+    let totalPresent = 0;
+    let totalAbsent = 0;
+
+    subjects.forEach((s) => {
+      totalConducted += s.conducted;
+      totalPresent += s.present;
+      totalAbsent += s.absent;
+    });
+
+    if (totalConducted === 0) {
       return { percentage: 100, attended: 0, absent: 0, total: 0, theory: 0, labs: 0 };
     }
 
-    const attended = records.filter((r) => r.status === 'present').length;
-    const absent = records.filter((r) => r.status === 'absent').length;
+    const { records } = get();
     const theory = records.filter((r) => r.type === 'Lecture').length;
     const labs = records.filter((r) => r.type === 'Lab').length;
-    const percentage = (attended / total) * 100;
+    const percentage = (totalPresent / totalConducted) * 100;
 
-    return { percentage, attended, absent, total, theory, labs };
+    return {
+      percentage,
+      attended: totalPresent,
+      absent: totalAbsent,
+      total: totalConducted,
+      theory,
+      labs,
+    };
   },
 
   clear: () => set({ subjects: [], records: [], isLoading: false, error: null }),
