@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCollegeStore } from '../store/useCollegeStore';
 import { useAttendanceStore } from '../store/useAttendanceStore';
 import { useStudyStore } from '../store/useStudyStore';
+import { usePlannerStore } from '../store/usePlannerStore';
 import { Flame, ArrowRight, CheckCircle2, AlertTriangle, Compass } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 
@@ -14,6 +15,7 @@ const Dashboard: React.FC = () => {
   const { loadTimetable } = useCollegeStore();
   const { getOverallStats, loadAttendance } = useAttendanceStore();
   const study = useStudyStore();
+  const planner = usePlannerStore();
 
   const uid = user?.uid;
 
@@ -22,8 +24,9 @@ const Dashboard: React.FC = () => {
       loadTimetable(uid);
       loadAttendance(uid);
       study.loadStudyData(uid);
+      planner.loadTasks(uid);
     }
-  }, [uid, loadTimetable, loadAttendance]);
+  }, [uid]);
 
   const overallStats = getOverallStats();
   const isBelowTarget = overallStats.percentage < 75;
@@ -53,14 +56,25 @@ const Dashboard: React.FC = () => {
   const dailyGoalHours = parseFloat((study.dailyGoal / 3600).toFixed(1));
   const daysGoalMet = insightChartData.filter(d => d.score >= dailyGoalHours).length;
 
-
-
   const getFirstName = (fullName: string) => {
     if (!fullName) return 'User';
     return fullName.trim().split(/\s+/)[0];
   };
 
+  const getTaskIcon = (title: string, subject?: string) => {
+    const text = `${title} ${subject || ''}`.toLowerCase();
+    if (text.includes('assignment') || text.includes('homework')) return '📄';
+    if (text.includes('record') || text.includes('lab') || text.includes('practical')) return '📝';
+    if (text.includes('project') || text.includes('report')) return '💻';
+    if (text.includes('exam') || text.includes('test') || text.includes('quiz') || text.includes('study') || text.includes('revise')) return '📚';
+    return '🔔';
+  };
 
+  // Filter tasks due today that are not completed (Pending or Overdue)
+  const todayStr = new Date().toLocaleDateString('en-CA');
+  const todayTasks = planner.tasks
+    .filter((t) => t.dueDate === todayStr && t.status !== 'Completed')
+    .slice(0, 5);
 
   return (
     <div className="space-y-8 pb-10">
@@ -87,7 +101,6 @@ const Dashboard: React.FC = () => {
         
         {/* Left Column: Welcomer & Insights */}
         <div className="lg:col-span-2 flex flex-col justify-between">
-          {/* Greeting & Weekly Insight Card merged */}
           <div className="glass rounded-3xl p-6 border border-slate-800/50 flex-1 flex flex-col justify-between">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
@@ -218,8 +231,64 @@ const Dashboard: React.FC = () => {
         <ArrowRight className="w-5 h-5 text-dark-text-secondary group-hover:text-white group-hover:translate-x-1 transition-all duration-200" />
       </div>
 
-      {/* Consistency Streak Card (Centered layout) */}
-      <div className="max-w-md mx-auto">
+      {/* Bento Row: Today's Planner & Consistency Streak */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Today's Planner */}
+        <div className="glass rounded-3xl p-6 border border-slate-800/50 flex flex-col justify-between shadow-lg lg:col-span-2">
+          <div className="flex justify-between items-center border-b border-slate-800/50 pb-4 mb-4">
+            <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider">
+              Today's Planner
+            </span>
+            <button
+              onClick={() => navigate('/planner')}
+              className="text-xs text-primary hover:text-accent font-bold cursor-pointer transition-colors"
+            >
+              View All
+            </button>
+          </div>
+
+          <div className="space-y-3 flex-1 min-h-[160px] flex flex-col justify-center">
+            {todayTasks.length === 0 ? (
+              <div className="text-center py-6 text-dark-text-secondary">
+                <span className="text-2xl block mb-1">🎉</span>
+                <p className="text-xs font-semibold">All tasks completed for today!</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {todayTasks.map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex justify-between items-center bg-slate-900/40 p-3.5 rounded-2xl border border-slate-800/40"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <span className="text-xl shrink-0">{getTaskIcon(t.title, t.subject)}</span>
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-bold text-white truncate">{t.title}</h4>
+                        {t.subject && (
+                          <span className="text-[10px] text-dark-text-secondary font-semibold uppercase tracking-wider block mt-0.5">
+                            {t.subject}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-xs text-dark-text-secondary font-bold block">
+                        Due Today
+                      </span>
+                      {t.dueTime && (
+                        <span className="text-[10px] text-accent font-semibold block mt-0.5">
+                          {t.dueTime}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Consistency Streak Card */}
         <div className="glass rounded-3xl p-6 border border-slate-850 flex flex-col justify-between items-center text-center shadow-xl">
           <div className="w-full flex justify-between items-center border-b border-slate-800/50 pb-3 mb-3">
             <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider">

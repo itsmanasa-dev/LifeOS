@@ -16,7 +16,7 @@ const MainShell: React.FC = () => {
     { path: '/dashboard', label: 'Home', icon: Home },
     { path: '/college', label: 'College', icon: GraduationCap },
     { path: '/govexam', label: 'Study', icon: Flame },
-    { path: '/planner', label: 'Tasks', icon: CheckSquare },
+    { path: '/planner', label: 'Planner', icon: CheckSquare },
     { path: '/settings', label: 'Profile', icon: User },
   ];
 

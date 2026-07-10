@@ -2,787 +2,641 @@ import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/useAuthStore';
 import { usePlannerStore } from '../store/usePlannerStore';
 import { 
-  Plus, Trash2, Edit3, Check, 
-  CheckCircle2, Circle, Sparkles, Notebook, CheckSquare, Dumbbell, CalendarDays
+  Plus, Trash2, Edit3, CheckCircle2, Circle, AlertTriangle, CalendarDays, Search, ArrowUpDown, X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
-import type { TaskModel, HabitModel, NoteModel, CalendarEvent, TaskPriority } from '../types';
+import type { TaskModel, TaskPriority, TaskStatus } from '../types';
 
-type ActiveTaskFilter = 'today' | 'upcoming' | 'completed' | 'all';
+type PlannerTab = 'today' | 'tomorrow' | 'upcoming' | 'completed';
 
 const Planner: React.FC = () => {
   const { user } = useAuthStore();
   const planner = usePlannerStore();
   const uid = user?.uid || '';
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = new Date().toLocaleDateString('en-CA');
+  const tomorrowStr = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toLocaleDateString('en-CA');
+  })();
 
-  // Core Data loaders
+  // Core Data loader
   useEffect(() => {
     if (uid) {
       planner.loadTasks(uid);
-      planner.loadHabits(uid);
-      planner.loadHabitLogs(uid, todayStr);
-      planner.loadGoals(uid);
-      planner.loadNotes(uid);
-      planner.loadEvents(uid);
     }
   }, [uid]);
 
-  // Task state
-  const [taskFilter, setTaskFilter] = useState<ActiveTaskFilter>('today');
-  const [quickTaskTitle, setQuickTaskTitle] = useState('');
-  
-  // Modals state
-  const [taskModal, setTaskModal] = useState<{ open: boolean; task?: TaskModel }>({ open: false });
-  const [habitModal, setHabitModal] = useState<{ open: boolean }>({ open: false });
-  const [eventModal, setEventModal] = useState<{ open: boolean }>({ open: false });
-
-  // Debounced Scratchpad Text State
-  const [scratchpadText, setScratchpadText] = useState('');
-  const [isSavingNote, setIsSavingNote] = useState(false);
-
-  // Load today's scratchpad note when notes load
+  // Request browser notification permissions
   useEffect(() => {
-    const scratchId = `scratchpad-${todayStr}`;
-    const existingNote = planner.notes.find(n => n.id === scratchId);
-    if (existingNote) {
-      setScratchpadText(existingNote.content);
-    } else {
-      setScratchpadText('');
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
     }
-  }, [planner.notes, todayStr]);
+  }, []);
 
-  // Debounce Note Auto-Save
+  // Notifications Reminder Poller
   useEffect(() => {
-    if (!uid) return;
-    const scratchId = `scratchpad-${todayStr}`;
-    const existingNote = planner.notes.find(n => n.id === scratchId);
-    
-    // Skip if unchanged
-    if (existingNote && existingNote.content === scratchpadText) return;
-    if (!existingNote && scratchpadText === '') return;
+    const checkReminders = () => {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      
+      const now = new Date();
+      const notifiedStr = localStorage.getItem('planner_notified_ids') || '[]';
+      const notifiedIds: string[] = JSON.parse(notifiedStr);
+      let updated = false;
 
-    setIsSavingNote(true);
-    const timer = setTimeout(async () => {
-      try {
-        const updatedNote: NoteModel = {
-          id: scratchId,
-          title: `Daily Scratchpad (${todayStr})`,
-          content: scratchpadText,
-          createdAt: existingNote?.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        await planner.upsertNote(uid, updatedNote);
-      } catch (err) {
-        console.error('Scratchpad save error:', err);
-      } finally {
-        setIsSavingNote(false);
+      planner.tasks.forEach((t) => {
+        if (t.status === 'Completed' || t.reminder === 'none' || notifiedIds.includes(t.id)) return;
+
+        const dueDateTime = new Date(`${t.dueDate}T${t.dueTime || '23:59'}`);
+        let reminderTime = new Date(dueDateTime);
+
+        if (t.reminder === '10m') reminderTime.setMinutes(dueDateTime.getMinutes() - 10);
+        else if (t.reminder === '30m') reminderTime.setMinutes(dueDateTime.getMinutes() - 30);
+        else if (t.reminder === '1h') reminderTime.setHours(dueDateTime.getHours() - 1);
+        else if (t.reminder === '1d') reminderTime.setDate(dueDateTime.getDate() - 1);
+
+        if (now >= reminderTime && now < dueDateTime) {
+          new Notification(`Reminder: ${t.title}`, {
+            body: `${t.subject ? `[${t.subject}] ` : ''}Due at ${t.dueTime} today.`,
+            icon: '/favicon.svg',
+          });
+          notifiedIds.push(t.id);
+          updated = true;
+        }
+      });
+
+      if (updated) {
+        localStorage.setItem('planner_notified_ids', JSON.stringify(notifiedIds));
       }
-    }, 1200);
-
-    return () => clearTimeout(timer);
-  }, [scratchpadText, uid, todayStr]);
-
-  // Quick Inline Task Creator (handles hitting Enter)
-  const handleQuickTaskSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!quickTaskTitle.trim()) return;
-
-    const newTask: TaskModel = {
-      id: `task-${Date.now()}`,
-      title: quickTaskTitle.trim(),
-      priority: 'medium',
-      isCompleted: false,
-      category: 'Personal',
-      dueDate: new Date().toISOString(), // Default: Today
-      createdAt: new Date().toISOString()
     };
 
-    try {
-      await planner.upsertTask(uid, newTask);
-      setQuickTaskTitle('');
-      toast.success('Task added!');
-    } catch (err) {
-      toast.error('Failed to create task');
-    }
-  };
+    const interval = setInterval(checkReminders, 20000); // Check every 20s
+    return () => clearInterval(interval);
+  }, [planner.tasks]);
 
-  // Full Task Modals Save handler
+  // Search & Sort states
+  const [activeTab, setActiveTab] = useState<PlannerTab>('today');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortField, setSortField] = useState<'dueDate' | 'dueTime' | 'priority'>('dueDate');
+  const [selectedDayStr, setSelectedDayStr] = useState<string | null>(null);
+
+  // Month calendar state
+  const [focusedMonth, setFocusedMonth] = useState<Date>(new Date());
+
+  // Task creation/edit modal state
+  const [taskModal, setTaskModal] = useState<{ open: boolean; task?: TaskModel }>({ open: false });
+
+  // Handle Form Submit
   const handleSaveTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    
     const title = formData.get('title') as string;
+    const subject = formData.get('subject') as string;
     const description = formData.get('description') as string;
+    const dueDate = formData.get('dueDate') as string;
+    const dueTime = formData.get('dueTime') as string;
     const priority = formData.get('priority') as TaskPriority;
-    const category = formData.get('category') as string;
-    const dateVal = formData.get('dueDate') as string;
+    const status = formData.get('status') as TaskStatus;
+    const reminder = formData.get('reminder') as 'none' | '10m' | '30m' | '1h' | '1d';
 
-    if (!title.trim()) {
-      toast.error('Title is required');
+    if (!title || !dueDate || !dueTime) {
+      toast.error('Please enter Title, Due Date and Due Time.');
       return;
     }
 
-    const newTask: TaskModel = {
-      id: taskModal.task?.id || `task-${Date.now()}`,
+    const taskId = taskModal.task?.id || `task-${Date.now()}`;
+    const nowISO = new Date().toISOString();
+
+    const taskDoc: TaskModel = {
+      id: taskId,
       title: title.trim(),
-      description: description.trim() || undefined,
+      subject: subject ? subject.trim() : undefined,
+      description: description ? description.trim() : undefined,
+      dueDate,
+      dueTime,
       priority,
-      isCompleted: taskModal.task?.isCompleted || false,
-      category: category.trim() || undefined,
-      dueDate: dateVal ? new Date(dateVal).toISOString() : undefined,
-      createdAt: taskModal.task?.createdAt || new Date().toISOString()
+      status,
+      reminder,
+      createdAt: taskModal.task?.createdAt || nowISO,
+      updatedAt: nowISO,
+      completedAt: status === 'Completed' ? (taskModal.task?.completedAt || nowISO) : null,
     };
 
     try {
-      await planner.upsertTask(uid, newTask);
-      toast.success(taskModal.task ? 'Task updated!' : 'Task created!');
+      await planner.upsertTask(uid, taskDoc);
+      toast.success(taskModal.task ? 'Task updated!' : 'Task added!');
       setTaskModal({ open: false });
     } catch (err) {
-      toast.error('Failed to save task');
+      toast.error('Failed to save task.');
     }
   };
 
-  // Habit Add handler
-  const handleSaveHabit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const name = formData.get('name') as string;
-    const icon = formData.get('icon') as string;
-    const color = formData.get('color') as string;
-
-    if (!name.trim()) {
-      toast.error('Habit name is required');
-      return;
-    }
-
-    const newHabit: HabitModel = {
-      id: `habit-${Date.now()}`,
-      name: name.trim(),
-      icon: icon.trim() || '🎯',
-      color,
-      isActive: true
-    };
-
+  const handleToggleComplete = async (taskId: string) => {
     try {
-      await planner.addHabit(uid, newHabit);
-      toast.success('Habit added!');
-      setHabitModal({ open: false });
+      await planner.toggleComplete(uid, taskId);
+      toast.success('Task status updated');
     } catch (err) {
-      toast.error('Failed to add habit');
+      toast.error('Failed to update status.');
     }
   };
 
-  // Event Add handler
-  const handleSaveEvent = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const title = formData.get('title') as string;
-    const date = formData.get('date') as string;
-    const startTime = formData.get('startTime') as string;
-    const endTime = formData.get('endTime') as string;
-
-    if (!title.trim() || !date) {
-      toast.error('Title and Date are required');
-      return;
-    }
-
-    const newEvent: CalendarEvent = {
-      id: `event-${Date.now()}`,
-      title: title.trim(),
-      date,
-      startTime: startTime || undefined,
-      endTime: endTime || undefined
-    };
-
-    try {
-      await planner.upsertEvent(uid, newEvent);
-      toast.success('Event scheduled!');
-      setEventModal({ open: false });
-    } catch (err) {
-      toast.error('Failed to save event');
+  const handleDeleteTask = async (taskId: string) => {
+    if (confirm('Delete this task?')) {
+      try {
+        await planner.deleteTask(uid, taskId);
+        toast.success('Task deleted');
+      } catch (err) {
+        toast.error('Failed to delete task.');
+      }
     }
   };
 
-  // Get and filter tasks
-  const getFilteredTasks = () => {
-    let list = [...planner.tasks];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  // Calendar calculations
+  const year = focusedMonth.getFullYear();
+  const month = focusedMonth.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstWeekday = new Date(year, month, 1).getDay(); // 0 = Sun, 1 = Mon...
+  const firstWeekdayMapped = firstWeekday === 0 ? 6 : firstWeekday - 1; // Map Sun to 6, Mon to 0
+  const monthLabel = focusedMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const weekLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-    if (taskFilter === 'today') {
-      list = list.filter(t => {
-        if (!t.dueDate) return false;
-        const d = new Date(t.dueDate);
-        d.setHours(0, 0, 0, 0);
-        return d.getTime() === today.getTime() && !t.isCompleted;
-      });
-    } else if (taskFilter === 'upcoming') {
-      list = list.filter(t => {
-        if (!t.dueDate) return false;
-        const d = new Date(t.dueDate);
-        d.setHours(0, 0, 0, 0);
-        return d.getTime() > today.getTime() && !t.isCompleted;
-      });
-    } else if (taskFilter === 'completed') {
-      list = list.filter(t => t.isCompleted);
-    }
-    return list;
+  const getTaskCountForDay = (dateStr: string) => {
+    return planner.tasks.filter((t) => t.dueDate === dateStr && t.status !== 'Completed').length;
   };
 
-  // Statistics Calculations
-  const todayTasks = planner.tasks.filter(t => {
-    if (!t.dueDate) return false;
-    const d = new Date(t.dueDate).toISOString().split('T')[0];
-    return d === todayStr;
+  // Filter Tasks according to Search, Tabs, Calendar
+  const filteredTasks = planner.tasks.filter((t) => {
+    // 1. Search Query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchTitle = t.title.toLowerCase().includes(q);
+      const matchSubject = t.subject ? t.subject.toLowerCase().includes(q) : false;
+      const matchDate = t.dueDate.includes(q);
+      if (!matchTitle && !matchSubject && !matchDate) return false;
+    }
+
+    // 2. Calendar Selection Override
+    if (selectedDayStr) {
+      return t.dueDate === selectedDayStr;
+    }
+
+    // 3. Tab Filter
+    if (activeTab === 'today') {
+      return t.dueDate === todayStr && t.status !== 'Completed';
+    }
+    if (activeTab === 'tomorrow') {
+      return t.dueDate === tomorrowStr && t.status !== 'Completed';
+    }
+    if (activeTab === 'upcoming') {
+      return t.dueDate > tomorrowStr && t.status !== 'Completed';
+    }
+    if (activeTab === 'completed') {
+      return t.status === 'Completed';
+    }
+    return true;
   });
-  
-  const completedTodayTasks = todayTasks.filter(t => t.isCompleted).length;
-  const activeHabits = planner.habits.filter(h => h.isActive);
-  const completedHabitsCount = planner.habitLogs.filter(l => l.isCompleted).length;
 
-  const totalDailyItems = todayTasks.length + activeHabits.length;
-  const completedDailyItems = completedTodayTasks + completedHabitsCount;
-  const dailyProgress = totalDailyItems > 0 ? Math.round((completedDailyItems / totalDailyItems) * 100) : 0;
+  // Sort Tasks
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    if (sortField === 'dueDate') {
+      return a.dueDate.localeCompare(b.dueDate);
+    }
+    if (sortField === 'dueTime') {
+      return a.dueTime.localeCompare(b.dueTime);
+    }
+    if (sortField === 'priority') {
+      const prioritiesMap = { urgent: 0, high: 1, medium: 2, low: 3 };
+      return prioritiesMap[a.priority] - prioritiesMap[b.priority];
+    }
+    return 0;
+  });
 
-  // Filtered lists
-  const filteredTasksList = getFilteredTasks();
-  const todayEventsList = planner.calendarEvents.filter(e => e.date === todayStr);
+  const getTaskIcon = (title: string, subject?: string) => {
+    const text = `${title} ${subject || ''}`.toLowerCase();
+    if (text.includes('assignment') || text.includes('homework')) return '📄';
+    if (text.includes('record') || text.includes('lab') || text.includes('practical')) return '📝';
+    if (text.includes('project') || text.includes('report')) return '💻';
+    if (text.includes('exam') || text.includes('test') || text.includes('quiz') || text.includes('study') || text.includes('revise')) return '📚';
+    return '🔔';
+  };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Refined Bento Header & Daily Metrics */}
-      <div className="glass rounded-2xl p-6 border border-slate-800/40 relative overflow-hidden bg-gradient-to-br from-slate-900/60 to-slate-950/20">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-1.5">
-            <div className="flex items-center space-x-2 text-indigo-400">
-              <Sparkles className="w-4 h-4 text-indigo-400" />
-              <span className="text-[10px] font-extrabold tracking-wider uppercase">Focus Flow Planner</span>
-            </div>
-            <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight m-0">
-              Your Daily Flow
-            </h1>
-            <p className="text-xs text-dark-text-secondary">
-              {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })} — Make progress, build consistency.
-            </p>
-          </div>
-
-          {/* Combined Progress Card */}
-          <div className="flex items-center space-x-4 bg-slate-900/40 border border-slate-800/40 p-4 rounded-xl min-w-[260px]">
-            <div className="text-center bg-indigo-500/10 border border-indigo-500/20 rounded-xl px-3.5 py-2">
-              <span className="text-2xl font-black text-indigo-400">{dailyProgress}%</span>
-            </div>
-            <div className="flex-1 space-y-1.5">
-              <div className="flex justify-between text-[10px] font-bold text-dark-text-secondary uppercase tracking-wider">
-                <span>Daily Progress</span>
-                <span className="text-white">{completedDailyItems}/{totalDailyItems} items</span>
-              </div>
-              <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800/40">
-                <div 
-                  className="bg-gradient-to-r from-indigo-500 to-indigo-400 h-full rounded-full transition-all duration-700 ease-out" 
-                  style={{ width: `${dailyProgress}%` }}
-                />
-              </div>
-            </div>
-          </div>
+    <div className="space-y-8">
+      {/* Upper header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-extrabold text-white tracking-tight">Student Planner</h1>
+          <p className="text-dark-text-secondary text-sm">Organize assignments, lab records, exams, and class schedules.</p>
         </div>
+        <button
+          onClick={() => setTaskModal({ open: true })}
+          className="bg-primary hover:bg-primary/90 text-white text-xs font-bold px-4 py-3 rounded-2xl cursor-pointer flex items-center space-x-1.5 shadow-lg shadow-primary/20 transition-all"
+        >
+          <Plus className="w-4.5 h-4.5" />
+          <span>Add Task</span>
+        </button>
       </div>
 
-      {/* Bento Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* Column 1: Tasks (Col 6) */}
-        <div className="lg:col-span-6 flex flex-col glass rounded-2xl p-5 border border-slate-800/40 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <CheckSquare className="w-4 h-4 text-indigo-400" />
-              <h2 className="text-base font-extrabold text-white m-0">Tasks</h2>
+      {/* Main Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* Task List Left Panel */}
+        <div className="lg:col-span-2 space-y-4">
+
+          {/* Search & Sort Panel */}
+          <div className="glass rounded-3xl p-4 border border-slate-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            {/* Search Input */}
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-3 w-4 h-4 text-dark-text-secondary" />
+              <input
+                type="text"
+                placeholder="Search by title, subject, or date..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full input-field pl-10 text-xs"
+              />
             </div>
-            
-            {/* Minimal Filter Pills */}
-            <div className="flex space-x-1">
-              {(['today', 'upcoming', 'completed', 'all'] as ActiveTaskFilter[]).map((filter) => (
-                <button
-                  key={filter}
-                  onClick={() => setTaskFilter(filter)}
-                  className={`text-[9px] font-bold px-2.5 py-1 rounded-lg transition-all duration-200 capitalize cursor-pointer ${
-                    taskFilter === filter
-                      ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/20'
-                      : 'bg-slate-900/50 text-dark-text-secondary hover:text-white border border-slate-800/40'
-                  }`}
-                >
-                  {filter}
-                </button>
-              ))}
+
+            {/* Sort Selector */}
+            <div className="flex items-center space-x-2 shrink-0">
+              <ArrowUpDown className="w-4 h-4 text-dark-text-secondary" />
+              <select
+                value={sortField}
+                onChange={(e) => setSortField(e.target.value as any)}
+                className="input-field py-2 text-xs"
+              >
+                <option value="dueDate">Sort by Due Date</option>
+                <option value="dueTime">Sort by Due Time</option>
+                <option value="priority">Sort by Priority</option>
+              </select>
             </div>
           </div>
 
-          {/* Quick Inline Creation Input */}
-          <form onSubmit={handleQuickTaskSubmit} className="relative">
-            <input
-              type="text"
-              placeholder="+ Quick add task... (press Enter)"
-              value={quickTaskTitle}
-              onChange={(e) => setQuickTaskTitle(e.target.value)}
-              className="w-full input-field pr-12 text-xs py-2.5"
-            />
-            <button
-              type="button"
-              onClick={() => setTaskModal({ open: true })}
-              className="absolute right-2 top-1.5 p-1 text-dark-text-secondary hover:text-white rounded-lg transition-colors cursor-pointer"
-              title="Add detailed task"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </form>
-
-          {/* Checklist Area */}
-          <div className="flex-1 space-y-2.5 min-h-[340px] max-h-[500px] overflow-y-auto pr-1">
-            <AnimatePresence initial={false}>
-              {filteredTasksList.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center p-8 text-dark-text-secondary border border-dashed border-slate-800/50 rounded-xl">
-                  <span className="text-xs">No active tasks found in this view.</span>
-                </div>
-              ) : (
-                filteredTasksList.map((task) => (
-                  <motion.div
-                    key={task.id}
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ duration: 0.15 }}
-                    className="p-3 bg-slate-900/40 border border-slate-800/40 hover:border-slate-800 rounded-xl flex items-center justify-between gap-3 group transition-all duration-200"
-                  >
-                    <div className="flex items-center space-x-3 min-w-0 flex-1">
-                      <button
-                        onClick={() => planner.toggleComplete(uid, task.id)}
-                        className="text-dark-text-secondary hover:text-indigo-400 focus:outline-none cursor-pointer flex-shrink-0"
-                      >
-                        {task.isCompleted ? (
-                          <CheckCircle2 className="w-4 h-4 text-indigo-400 fill-indigo-500/10" />
-                        ) : (
-                          <Circle className="w-4 h-4 opacity-50 hover:opacity-100" />
-                        )}
-                      </button>
-                      
-                      <div className="min-w-0 flex-1">
-                        <span className={`text-xs font-medium block truncate ${
-                          task.isCompleted ? 'line-through text-dark-text-secondary opacity-60' : 'text-slate-200'
-                        }`}>
-                          {task.title}
-                        </span>
-                        
-                        {/* Task metadata markers */}
-                        <div className="flex items-center space-x-2 mt-1">
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            task.priority === 'urgent' || task.priority === 'high' ? 'bg-red-500' :
-                            task.priority === 'medium' ? 'bg-amber-500' : 'bg-emerald-500'
-                          }`} />
-                          <span className="text-[9px] uppercase tracking-wider text-dark-text-secondary font-bold">
-                            {task.priority}
-                          </span>
-                          {task.category && (
-                            <span className="text-[8px] bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded font-extrabold uppercase">
-                              {task.category}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Quick Edit/Delete Row */}
-                    <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                      <button
-                        onClick={() => setTaskModal({ open: true, task })}
-                        className="p-1 hover:bg-slate-850 rounded text-dark-text-secondary hover:text-white cursor-pointer"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={async () => {
-                          await planner.deleteTask(task.id);
-                          toast.success('Task deleted');
-                        }}
-                        className="p-1 hover:bg-slate-850 rounded text-dark-text-secondary hover:text-red-400 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </motion.div>
-                ))
-              )}
-            </AnimatePresence>
+          {/* Selection chips (Tabs) */}
+          <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-slate-800/50">
+            {(['today', 'tomorrow', 'upcoming', 'completed'] as PlannerTab[]).map((tab) => (
+              <button
+                key={tab}
+                disabled={!!selectedDayStr}
+                onClick={() => {
+                  setActiveTab(tab);
+                }}
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all duration-200 cursor-pointer capitalize ${
+                  selectedDayStr
+                    ? 'text-dark-text-secondary/40'
+                    : activeTab === tab
+                    ? 'bg-slate-900 text-white border border-slate-800/80 shadow-md'
+                    : 'text-dark-text-secondary hover:text-white'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
           </div>
-        </div>
 
-        {/* Column 2: Habits (Col 3) */}
-        <div className="lg:col-span-3 flex flex-col glass rounded-2xl p-5 border border-slate-800/40 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Dumbbell className="w-4 h-4 text-indigo-400" />
-              <h2 className="text-base font-extrabold text-white m-0">Habits</h2>
+          {/* Date Filter Badge if active */}
+          {selectedDayStr && (
+            <div className="flex justify-between items-center bg-accent/10 border border-accent/25 rounded-2xl px-4 py-2.5 text-xs text-accent">
+              <span className="font-semibold">Showing tasks due on: {selectedDayStr}</span>
+              <button
+                onClick={() => setSelectedDayStr(null)}
+                className="p-1 hover:bg-accent/20 rounded-lg transition-colors cursor-pointer"
+                title="Clear date filter"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <button
-              onClick={() => setHabitModal({ open: true })}
-              className="p-1 text-indigo-400 hover:text-indigo-300 rounded cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
+          )}
 
-          {/* Habits Grid */}
-          <div className="flex-1 space-y-3 max-h-[500px] overflow-y-auto pr-1">
-            {activeHabits.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center p-6 text-dark-text-secondary border border-dashed border-slate-800/50 rounded-xl">
-                <span className="text-xs">No active habits.</span>
+          {/* Tasks Container */}
+          <div className="space-y-3 min-h-[300px]">
+            {sortedTasks.length === 0 ? (
+              <div className="glass rounded-3xl p-12 text-center text-dark-text-secondary border border-slate-800/50">
+                <span className="text-3xl block mb-2">🎉</span>
+                <p className="text-sm font-bold">No tasks found matching current filters.</p>
               </div>
             ) : (
-              activeHabits.map((habit) => {
-                const isCompleted = planner.habitLogs.some((l) => l.habitId === habit.id && l.isCompleted);
-                return (
-                  <motion.div
-                    key={habit.id}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => planner.toggleHabit(uid, habit.id, todayStr)}
-                    className={`p-3.5 rounded-xl border cursor-pointer flex items-center justify-between relative transition-all duration-300 group ${
-                      isCompleted 
-                        ? 'border-indigo-500/30 shadow-md shadow-indigo-500/5' 
-                        : 'border-slate-800/40 hover:border-slate-800'
-                    }`}
-                    style={{ backgroundColor: isCompleted ? `${habit.color}10` : 'rgba(14, 18, 30, 0.45)' }}
-                  >
-                    <div className="flex items-center space-x-3 min-w-0">
-                      <span className="text-2xl">{habit.icon}</span>
-                      <div className="min-w-0">
-                        <span className="text-xs font-bold text-white block truncate">{habit.name}</span>
-                        <span className="text-[9px] text-dark-text-secondary">Click to log</span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center space-x-1.5">
-                      <div 
-                        className={`p-1 rounded-full ${isCompleted ? 'text-indigo-400' : 'text-slate-700'}`}
-                        style={{ color: isCompleted ? habit.color : undefined }}
-                      >
-                        {isCompleted ? <Check className="w-4 h-4" /> : <Circle className="w-4 h-4 opacity-40" />}
+              <AnimatePresence>
+                {sortedTasks.map((t) => {
+                  const isOverdue = t.status === 'Overdue';
+                  const priorityColors = {
+                    urgent: 'border-error/30 text-error bg-error/5',
+                    high: 'border-amber-500/30 text-amber-500 bg-amber-500/5',
+                    medium: 'border-primary/30 text-primary bg-primary/5',
+                    low: 'border-slate-800 text-dark-text-secondary bg-slate-900/10',
+                  };
+
+                  return (
+                    <motion.div
+                      key={t.id}
+                      layout
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className={`glass rounded-3xl p-5 border shadow-md flex items-start justify-between transition-all group ${
+                        isOverdue ? 'border-error/40 bg-error/5' : 'border-slate-800/50'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-4 min-w-0">
+                        {/* Toggle Circle */}
+                        <button
+                          onClick={() => handleToggleComplete(t.id)}
+                          className="mt-1 text-dark-text-secondary hover:text-white shrink-0 cursor-pointer"
+                        >
+                          {t.status === 'Completed' ? (
+                            <CheckCircle2 className="w-5 h-5 text-success fill-success/10" />
+                          ) : (
+                            <Circle className="w-5 h-5 text-slate-700 hover:text-primary" />
+                          )}
+                        </button>
+
+                        <div className="min-w-0">
+                          {/* Title with Emoji */}
+                          <h4 className="text-sm font-bold text-white leading-snug flex items-center flex-wrap gap-2">
+                            <span>{getTaskIcon(t.title, t.subject)}</span>
+                            <span className={t.status === 'Completed' ? 'line-through text-dark-text-secondary font-medium' : ''}>
+                              {t.title}
+                            </span>
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded border font-black uppercase tracking-wider ${priorityColors[t.priority]}`}>
+                              {t.priority}
+                            </span>
+                          </h4>
+
+                          {/* Subject Pill */}
+                          {t.subject && (
+                            <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider block mt-1">
+                              {t.subject}
+                            </span>
+                          )}
+
+                          {/* Description */}
+                          {t.description && (
+                            <p className="text-xs text-dark-text-secondary mt-2 leading-relaxed">
+                              {t.description}
+                            </p>
+                          )}
+
+                          {/* Date, Time & Status */}
+                          <div className="flex items-center space-x-3 mt-3.5 text-[10px] font-bold uppercase tracking-wider text-dark-text-secondary">
+                            <span className="bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                              {t.dueDate} {t.dueTime}
+                            </span>
+                            {t.reminder !== 'none' && (
+                              <span className="text-accent">
+                                🔔 {t.reminder} before
+                              </span>
+                            )}
+                            {isOverdue && (
+                              <span className="text-error flex items-center space-x-0.5">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                <span>Overdue</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
-                      {/* Delete button (displays on hover) */}
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (confirm(`Delete habit "${habit.name}"?`)) {
-                            await planner.deleteHabit(habit.id);
-                            toast.success('Habit deleted');
-                          }
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-800 rounded text-dark-text-secondary hover:text-red-400 cursor-pointer transition-opacity duration-150"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </motion.div>
-                );
-              })
+                      {/* Right-side Action buttons */}
+                      <div className="flex items-center space-x-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => setTaskModal({ open: true, task: t })}
+                          className="p-1.5 hover:bg-slate-800 rounded-lg text-dark-text-secondary hover:text-white cursor-pointer"
+                          title="Edit Task"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTask(t.id)}
+                          className="p-1.5 hover:bg-slate-800 rounded-lg text-dark-text-secondary hover:text-error cursor-pointer"
+                          title="Delete Task"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
             )}
           </div>
         </div>
 
-        {/* Column 3: Scratchpad & Agenda (Col 3) */}
-        <div className="lg:col-span-3 flex flex-col space-y-6">
-          
-          {/* Scratchpad */}
-          <div className="glass rounded-2xl p-5 border border-slate-800/40 flex flex-col space-y-3 bg-slate-900/10">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Notebook className="w-4 h-4 text-indigo-400" />
-                <h2 className="text-base font-extrabold text-white m-0">Scratchpad</h2>
-              </div>
-              {isSavingNote && (
-                <span className="text-[9px] bg-indigo-500/10 text-indigo-400 font-bold px-2 py-0.5 rounded animate-pulse">
-                  Saving...
-                </span>
-              )}
-            </div>
-
-            <textarea
-              placeholder="Jot down quick thoughts or a reflection today. It auto-saves..."
-              value={scratchpadText}
-              onChange={(e) => setScratchpadText(e.target.value)}
-              className="w-full h-36 bg-slate-950/40 border border-slate-800/40 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/50 resize-none transition-all duration-200"
-            />
-          </div>
-
-          {/* Agenda */}
-          <div className="glass rounded-2xl p-5 border border-slate-800/40 flex flex-col space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <CalendarDays className="w-4 h-4 text-indigo-400" />
-                <h2 className="text-base font-extrabold text-white m-0">Today's Agenda</h2>
-              </div>
+        {/* Small Calendar Right Panel */}
+        <div className="space-y-4">
+          <div className="glass rounded-3xl p-6 border border-slate-800/50 shadow-lg">
+            {/* Calendar Header */}
+            <div className="flex justify-between items-center mb-6">
               <button
-                onClick={() => setEventModal({ open: true })}
-                className="p-1 text-indigo-400 hover:text-indigo-300 rounded cursor-pointer"
+                onClick={() => setFocusedMonth(new Date(year, month - 1))}
+                className="p-1.5 hover:bg-slate-800 rounded-lg text-dark-text-secondary hover:text-white cursor-pointer font-bold text-xs"
               >
-                <Plus className="w-4 h-4" />
+                &lt;
+              </button>
+              <h3 className="text-xs font-extrabold text-white uppercase tracking-wider">{monthLabel}</h3>
+              <button
+                onClick={() => setFocusedMonth(new Date(year, month + 1))}
+                className="p-1.5 hover:bg-slate-800 rounded-lg text-dark-text-secondary hover:text-white cursor-pointer font-bold text-xs"
+              >
+                &gt;
               </button>
             </div>
 
-            {/* Events timeline list */}
-            <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-              {todayEventsList.length === 0 ? (
-                <div className="py-6 text-center text-dark-text-secondary text-xs border border-dashed border-slate-800/50 rounded-xl">
-                  No events scheduled today.
-                </div>
-              ) : (
-                todayEventsList.map((evt) => (
-                  <div 
-                    key={evt.id} 
-                    className="p-2.5 bg-slate-900/40 border border-slate-800/40 rounded-xl flex items-center justify-between gap-2"
+            {/* Week Labels */}
+            <div className="grid grid-cols-7 gap-2 mb-4 text-center text-xs font-bold text-dark-text-secondary">
+              {weekLabels.map((lbl, idx) => <span key={idx}>{lbl}</span>)}
+            </div>
+
+            {/* Days Grid */}
+            <div className="grid grid-cols-7 gap-2 text-center text-sm">
+              {Array.from({ length: firstWeekdayMapped }).map((_, idx) => (
+                <div key={`fill-${idx}`} className="h-9 opacity-0" />
+              ))}
+
+              {Array.from({ length: daysInMonth }).map((_, idx) => {
+                const dayNum = idx + 1;
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                
+                const taskCount = getTaskCountForDay(dateStr);
+                const hasTasks = taskCount > 0;
+                const isSelected = selectedDayStr === dateStr;
+
+                return (
+                  <div
+                    key={`day-${dayNum}`}
+                    onClick={() => {
+                      if (selectedDayStr === dateStr) {
+                        setSelectedDayStr(null);
+                      } else {
+                        setSelectedDayStr(dateStr);
+                      }
+                    }}
+                    className={`h-9 rounded-full flex flex-col items-center justify-center relative cursor-pointer hover:bg-slate-850 border text-xs font-semibold ${
+                      isSelected
+                        ? 'border-accent bg-accent/15 text-accent font-bold'
+                        : 'border-transparent text-white'
+                    }`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs font-bold text-slate-200 block truncate">{evt.title}</span>
-                      {evt.startTime && (
-                        <span className="text-[9px] text-dark-text-secondary block mt-0.5">
-                          {evt.startTime} {evt.endTime ? ` - ${evt.endTime}` : ''}
-                        </span>
-                      )}
-                    </div>
-                    
-                    <button
-                      onClick={async () => {
-                        await planner.deleteEvent(evt.id);
-                        toast.success('Event deleted');
-                      }}
-                      className="p-1 hover:bg-slate-800 rounded text-dark-text-secondary hover:text-red-400 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <span>{dayNum}</span>
+                    {hasTasks && (
+                      <div className="absolute bottom-1 w-1 h-1 bg-primary rounded-full" />
+                    )}
                   </div>
-                ))
-              )}
+                );
+              })}
             </div>
           </div>
 
+          <div className="flex items-center space-x-2.5 text-[10px] text-dark-text-secondary bg-slate-900/50 p-4 rounded-2xl border border-slate-800/40">
+            <CalendarDays className="w-5 h-5 text-primary shrink-0" />
+            <p className="m-0 leading-relaxed font-semibold">
+              Interactive monthly calendar. Days with active assignments or exams are highlighted. Click to view schedule for that day.
+            </p>
+          </div>
         </div>
 
       </div>
 
-      {/* Task Creation & Editing Modal */}
+      {/* Task Form Modal */}
       {taskModal.open && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
+            initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl relative"
+            className="bg-dark-card border border-slate-800/80 rounded-3xl p-6 w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh]"
           >
-            <h3 className="text-lg font-bold text-white mb-4">
-              {taskModal.task ? 'Edit Task' : 'Add Task'}
+            <h3 className="text-xl font-bold text-white mb-4">
+              {taskModal.task ? 'Edit Planner Item' : 'Create Planner Item'}
             </h3>
+            
             <form onSubmit={handleSaveTask} className="space-y-4">
+              {/* Title */}
               <div>
                 <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Title</label>
                 <input
                   type="text"
                   name="title"
                   defaultValue={taskModal.task?.title || ''}
-                  placeholder="Task title"
-                  className="w-full input-field text-xs"
+                  placeholder="e.g. DBMS Assignment, ADA Lab Record"
+                  className="w-full input-field text-sm"
                   required
                 />
               </div>
+
+              {/* Subject */}
               <div>
-                <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Description</label>
+                <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Subject / Category (Optional)</label>
+                <input
+                  type="text"
+                  name="subject"
+                  defaultValue={taskModal.task?.subject || ''}
+                  placeholder="e.g. DBMS, Maths"
+                  className="w-full input-field text-sm"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Description (Optional)</label>
                 <textarea
                   name="description"
                   defaultValue={taskModal.task?.description || ''}
-                  placeholder="Notes (optional)"
-                  className="w-full input-field text-xs min-h-20"
+                  placeholder="Additional details..."
+                  className="w-full input-field text-xs h-20 resize-none py-2.5"
                 />
               </div>
+
+              {/* Dates grid */}
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Category</label>
-                  <input
-                    type="text"
-                    name="category"
-                    defaultValue={taskModal.task?.category || 'Personal'}
-                    className="w-full input-field text-xs"
-                  />
-                </div>
                 <div>
                   <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Due Date</label>
                   <input
                     type="date"
                     name="dueDate"
-                    defaultValue={taskModal.task?.dueDate ? taskModal.task.dueDate.split('T')[0] : todayStr}
-                    className="w-full input-field text-xs"
+                    defaultValue={taskModal.task?.dueDate || todayStr}
+                    className="w-full input-field text-sm"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Due Time</label>
+                  <input
+                    type="time"
+                    name="dueTime"
+                    defaultValue={taskModal.task?.dueTime || '17:00'}
+                    className="w-full input-field text-sm"
+                    required
                   />
                 </div>
               </div>
+
+              {/* Priorities & Status grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Priority</label>
+                  <select
+                    name="priority"
+                    defaultValue={taskModal.task?.priority || 'medium'}
+                    className="w-full input-field text-xs"
+                  >
+                    <option value="low">Low Priority</option>
+                    <option value="medium">Medium Priority</option>
+                    <option value="high">High Priority</option>
+                    <option value="urgent">Urgent Priority</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Status</label>
+                  <select
+                    name="status"
+                    defaultValue={taskModal.task?.status || 'Pending'}
+                    className="w-full input-field text-xs"
+                  >
+                    <option value="Pending">Pending</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Overdue">Overdue</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Reminders */}
               <div>
-                <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Priority</label>
+                <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Reminder Alarm</label>
                 <select
-                  name="priority"
-                  defaultValue={taskModal.task?.priority || 'medium'}
+                  name="reminder"
+                  defaultValue={taskModal.task?.reminder || 'none'}
                   className="w-full input-field text-xs"
                 >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
+                  <option value="none">No reminder</option>
+                  <option value="10m">10 minutes before</option>
+                  <option value="30m">30 minutes before</option>
+                  <option value="1h">1 hour before</option>
+                  <option value="1d">1 day before</option>
                 </select>
               </div>
+
+              {/* Footer */}
               <div className="flex space-x-3 pt-3">
                 <button
                   type="button"
                   onClick={() => setTaskModal({ open: false })}
-                  className="flex-1 border border-slate-800 hover:bg-slate-950 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  className="flex-1 border border-slate-800 hover:bg-slate-900 text-white font-bold py-3.5 rounded-2xl text-xs transition-all duration-200 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  className="flex-1 bg-primary hover:bg-primary/95 text-white font-bold py-3.5 rounded-2xl text-xs transition-all duration-200 cursor-pointer shadow-lg shadow-primary/25"
                 >
-                  Save
+                  Save Item
                 </button>
               </div>
             </form>
           </motion.div>
         </div>
       )}
-
-      {/* Habit Creation Modal */}
-      {habitModal.open && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl"
-          >
-            <h3 className="text-lg font-bold text-white mb-4">New Habit</h3>
-            <form onSubmit={handleSaveHabit} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Habit Name</label>
-                <input
-                  type="text"
-                  name="name"
-                  placeholder="e.g. Drink Water, Gym"
-                  className="w-full input-field text-xs"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Emoji Icon</label>
-                  <input
-                    type="text"
-                    name="icon"
-                    placeholder="💧"
-                    className="w-full input-field text-center text-xs"
-                    maxLength={2}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Theme Color</label>
-                  <input
-                    type="color"
-                    name="color"
-                    defaultValue="#6366F1"
-                    className="w-full h-[38px] p-1 bg-slate-950 border border-slate-800 rounded-xl cursor-pointer"
-                  />
-                </div>
-              </div>
-              <div className="flex space-x-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setHabitModal({ open: false })}
-                  className="flex-1 border border-slate-800 hover:bg-slate-950 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  Create Habit
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Agenda Event Scheduling Modal */}
-      {eventModal.open && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl"
-          >
-            <h3 className="text-lg font-bold text-white mb-4">Add Agenda Event</h3>
-            <form onSubmit={handleSaveEvent} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Event Title</label>
-                <input
-                  type="text"
-                  name="title"
-                  placeholder="e.g. Class, Team Call"
-                  className="w-full input-field text-xs"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Date</label>
-                <input
-                  type="date"
-                  name="date"
-                  defaultValue={todayStr}
-                  className="w-full input-field text-xs"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">Start Time</label>
-                  <input
-                    type="time"
-                    name="startTime"
-                    className="w-full input-field text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-dark-text-secondary uppercase mb-2">End Time</label>
-                  <input
-                    type="time"
-                    name="endTime"
-                    className="w-full input-field text-xs"
-                  />
-                </div>
-              </div>
-              <div className="flex space-x-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setEventModal({ open: false })}
-                  className="flex-1 border border-slate-800 hover:bg-slate-950 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  Schedule Event
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
-
     </div>
   );
 };

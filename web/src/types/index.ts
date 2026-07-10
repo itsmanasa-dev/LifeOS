@@ -34,17 +34,21 @@ export interface AttendanceRecord {
 }
 
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
-export type TaskFilter = 'all' | 'today' | 'upcoming' | 'completed';
+export type TaskStatus = 'Pending' | 'Completed' | 'Overdue';
 
 export interface TaskModel {
   id: string;
   title: string;
+  subject?: string;
   description?: string;
+  dueDate: string; // YYYY-MM-DD
+  dueTime: string; // HH:mm
   priority: TaskPriority;
-  isCompleted: boolean;
-  category?: string;
-  dueDate?: string; // ISO String
-  createdAt?: string; // ISO String
+  status: TaskStatus;
+  reminder: 'none' | '10m' | '30m' | '1h' | '1d';
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
 }
 
 export interface HabitModel {

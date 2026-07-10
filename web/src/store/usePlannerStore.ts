@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import type { TaskModel, HabitModel, HabitLog, GoalModel, NoteModel, CalendarEvent } from '../types';
+import type { TaskModel, TaskStatus, HabitModel, HabitLog, GoalModel, NoteModel, CalendarEvent } from '../types';
 
 interface PlannerStoreState {
   // Tasks state
@@ -31,7 +31,7 @@ interface PlannerStoreState {
   loadTasks: (userId: string) => Promise<void>;
   upsertTask: (userId: string, task: TaskModel) => Promise<void>;
   toggleComplete: (userId: string, taskId: string) => Promise<void>;
-  deleteTask: (taskId: string) => Promise<void>;
+  deleteTask: (userId: string, taskId: string) => Promise<void>;
 
   // Habits actions
   loadHabits: (userId: string) => Promise<void>;
@@ -84,17 +84,30 @@ export const usePlannerStore = create<PlannerStoreState>((set, get) => ({
   loadTasks: async (userId) => {
     set({ isLoadingTasks: true, error: null });
     try {
-      const q = query(collection(db, 'tasks'), where('userId', '==', userId));
+      const q = query(collection(db, 'users', userId, 'planner'));
       const querySnapshot = await getDocs(q);
       const list: TaskModel[] = [];
+      const now = new Date();
       querySnapshot.forEach((docSnap) => {
-        list.push(docSnap.data() as TaskModel);
+        const data = docSnap.data() as TaskModel;
+        
+        let status = data.status;
+        if (status === 'Pending') {
+          const dueDateTime = new Date(`${data.dueDate}T${data.dueTime || '23:59'}`);
+          if (dueDateTime < now) {
+            status = 'Overdue';
+          }
+        }
+
+        list.push({
+          ...data,
+          status,
+        });
       });
       list.sort((a, b) => {
-        if (!a.dueDate && !b.dueDate) return a.title.localeCompare(b.title);
-        if (!a.dueDate) return 1;
-        if (!b.dueDate) return -1;
-        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+        const dateCompare = a.dueDate.localeCompare(b.dueDate);
+        if (dateCompare !== 0) return dateCompare;
+        return a.dueTime.localeCompare(b.dueTime);
       });
       set({ tasks: list, isLoadingTasks: false });
     } catch (err: any) {
@@ -105,9 +118,8 @@ export const usePlannerStore = create<PlannerStoreState>((set, get) => ({
 
   upsertTask: async (userId, task) => {
     try {
-      const docRef = doc(db, 'tasks', task.id);
-      const taskWithUser = { ...task, userId };
-      await setDoc(docRef, taskWithUser, { merge: true });
+      const docRef = doc(db, 'users', userId, 'planner', task.id);
+      await setDoc(docRef, task, { merge: true });
 
       const current = get().tasks;
       const index = current.findIndex((t) => t.id === task.id);
@@ -118,10 +130,9 @@ export const usePlannerStore = create<PlannerStoreState>((set, get) => ({
         updated.push(task);
       }
       updated.sort((a, b) => {
-        if (!a.dueDate && !b.dueDate) return a.title.localeCompare(b.title);
-        if (!a.dueDate) return 1;
-        if (!b.dueDate) return -1;
-        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+        const dateCompare = a.dueDate.localeCompare(b.dueDate);
+        if (dateCompare !== 0) return dateCompare;
+        return a.dueTime.localeCompare(b.dueTime);
       });
       set({ tasks: updated });
     } catch (err: any) {
@@ -130,19 +141,33 @@ export const usePlannerStore = create<PlannerStoreState>((set, get) => ({
     }
   },
 
-  toggleComplete: async (_userId, taskId) => {
+  toggleComplete: async (userId, taskId) => {
     try {
       const current = get().tasks;
       const task = current.find((t) => t.id === taskId);
       if (!task) return;
 
-      const updatedStatus = !task.isCompleted;
-      const docRef = doc(db, 'tasks', taskId);
-      await updateDoc(docRef, { isCompleted: updatedStatus });
+      const wasCompleted = task.status === 'Completed';
+      const newStatus: TaskStatus = wasCompleted ? 'Pending' : 'Completed';
+      const completedAt = wasCompleted ? null : new Date().toISOString();
+
+      const docRef = doc(db, 'users', userId, 'planner', taskId);
+      await updateDoc(docRef, {
+        status: newStatus,
+        completedAt,
+        updatedAt: new Date().toISOString(),
+      });
 
       set({
         tasks: current.map((t) =>
-          t.id === taskId ? { ...t, isCompleted: updatedStatus } : t
+          t.id === taskId
+            ? {
+                ...t,
+                status: newStatus,
+                completedAt,
+                updatedAt: new Date().toISOString(),
+              }
+            : t
         ),
       });
     } catch (err: any) {
@@ -151,9 +176,9 @@ export const usePlannerStore = create<PlannerStoreState>((set, get) => ({
     }
   },
 
-  deleteTask: async (taskId) => {
+  deleteTask: async (userId, taskId) => {
     try {
-      const docRef = doc(db, 'tasks', taskId);
+      const docRef = doc(db, 'users', userId, 'planner', taskId);
       await deleteDoc(docRef);
 
       const current = get().tasks;
