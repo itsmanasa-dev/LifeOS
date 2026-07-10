@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCollegeStore } from '../store/useCollegeStore';
 import { useAttendanceStore } from '../store/useAttendanceStore';
-import { geminiService } from '../services/geminiService';
+import { ocrService } from '../services/ocrService';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { storage } from '../firebase/config';
 import { 
   CheckCircle, AlertTriangle, Image as ImageIcon, 
-  Settings, Loader2, ChevronRight, Info 
+  Loader2, ChevronRight, Info 
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -20,15 +22,12 @@ const CollegeHub: React.FC = () => {
   const uid = user?.uid || '';
 
   const [isExtracting, setIsExtracting] = useState(false);
-  const [apiKeyModal, setApiKeyModal] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
 
   useEffect(() => {
     if (uid) {
       college.loadTimetable(uid);
       attendance.loadAttendance(uid);
     }
-    setApiKeyInput(geminiService.getApiKey());
   }, [uid]);
 
   const todayClasses = college.getTodayEntries();
@@ -49,38 +48,46 @@ const CollegeHub: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const apiKey = geminiService.getApiKey();
-    if (!apiKey) {
-      toast.error('Gemini API key is required. Please configure it first.');
-      setApiKeyModal(true);
-      return;
-    }
-
     setIsExtracting(true);
-    toast.loading('Analyzing layout with Gemini AI...', { id: 'ocr' });
+    toast.loading('Uploading timetable file to Firebase Storage...', { id: 'ocr' });
 
     try {
-      const parsedEntries = await geminiService.extractTimetable(file);
+      // 1. Upload to Firebase Storage
+      const storageRef = ref(storage, `users/${uid}/timetables/${Date.now()}_${file.name}`);
+      const snapshot = await uploadBytesResumable(storageRef, file);
+      const downloadUrl = await getDownloadURL(snapshot.ref);
+
+      toast.loading('Extracting timetable layout locally...', { id: 'ocr' });
+
+      // 2. Local text extraction using Tesseract.js / PDF.js
+      let text = '';
+      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        text = await ocrService.extractTextFromPDF(file);
+      } else {
+        text = await ocrService.extractTextFromImage(file);
+      }
+
+      toast.loading('Parsing extracted timetable...', { id: 'ocr' });
+
+      // 3. Parser
+      const parsed = ocrService.parseTimetableText(text);
+
       toast.success('Timetable layout extracted successfully!', { id: 'ocr' });
-      // Navigate to preview page passing parsedEntries through state
-      navigate('/college/import-preview', { state: { entries: parsedEntries } });
+      // Navigate to preview page passing parsed entries, imageUrl and semester
+      navigate('/college/import-preview', { 
+        state: { 
+          entries: parsed.slots,
+          imageUrl: downloadUrl,
+          semester: parsed.semester
+        } 
+      });
     } catch (err: any) {
       console.error(err);
-      toast.error(err.message || 'AI Vision extraction failed.', { id: 'ocr' });
+      toast.error(err.message || 'Timetable text extraction failed.', { id: 'ocr' });
     } finally {
       setIsExtracting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  };
-
-  const saveApiKey = () => {
-    if (!apiKeyInput.trim()) {
-      toast.error('API key cannot be empty');
-      return;
-    }
-    geminiService.saveApiKey(apiKeyInput.trim());
-    toast.success('Gemini API key saved!');
-    setApiKeyModal(false);
   };
 
   const getInitials = (name: string) => {
@@ -90,6 +97,25 @@ const CollegeHub: React.FC = () => {
       .slice(0, 2)
       .join('')
       .toUpperCase();
+  };
+
+  const getSlotStatus = (subjectName: string, type: 'Lecture' | 'Lab') => {
+    const todayStr = new Date().toDateString();
+    const record = attendance.records.find((r) => {
+      const recordDateStr = new Date(r.date).toDateString();
+      const sub = attendance.subjects.find((s) => s.id === r.subjectId);
+      return (
+        sub &&
+        sub.name.toLowerCase() === subjectName.toLowerCase() &&
+        recordDateStr === todayStr &&
+        r.type === type
+      );
+    });
+
+    if (record) {
+      return record.status === 'present' ? 'Present' : 'Absent';
+    }
+    return 'Scheduled';
   };
 
   return (
@@ -174,25 +200,18 @@ const CollegeHub: React.FC = () => {
           </div>
         </div>
 
-        {/* OCR Upload Panel Right Pane */}
+        {/* Local OCR Upload Panel Right Pane */}
         <div className="glass rounded-3xl p-6 border border-slate-800/50 md:col-span-2 flex flex-col justify-between shadow-lg">
           <div className="flex justify-between items-center border-b border-slate-800/50 pb-4 mb-4">
             <span className="text-[10px] text-dark-text-secondary font-bold uppercase tracking-wider">
-              AI Timetable Importer
+              Timetable Importer
             </span>
-            <button
-              onClick={() => setApiKeyModal(true)}
-              className="p-1.5 hover:bg-slate-800 rounded-lg text-primary hover:text-accent cursor-pointer"
-              title="Configure API Key"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
           </div>
 
           {/* Hidden File Input */}
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,.pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp"
             ref={fileInputRef}
             onChange={handleFileChange}
             className="hidden"
@@ -207,16 +226,16 @@ const CollegeHub: React.FC = () => {
               <div className="text-center space-y-3">
                 <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
                 <h4 className="text-sm font-bold text-white">Analyzing layout...</h4>
-                <p className="text-xs text-dark-text-secondary">AI is reading schedule blocks.</p>
+                <p className="text-xs text-dark-text-secondary">Extracting schedule text locally.</p>
               </div>
             ) : (
               <div className="text-center space-y-2.5">
                 <div className="p-3 bg-primary/10 rounded-full border border-primary/20 group-hover:scale-105 transition-transform duration-200 inline-block">
                   <ImageIcon className="w-7 h-7 text-primary" />
                 </div>
-                <h4 className="text-sm font-bold text-white">Upload Timetable Image</h4>
+                <h4 className="text-sm font-bold text-white">Upload Timetable Image / PDF</h4>
                 <p className="text-xs text-dark-text-secondary max-w-xs leading-relaxed">
-                  Upload an image of your schedule. Gemini AI will structure and group classes automatically.
+                  Upload an image or PDF of your schedule. Local OCR will extract and parse class slots automatically.
                 </p>
               </div>
             )}
@@ -225,7 +244,7 @@ const CollegeHub: React.FC = () => {
           <div className="flex items-center space-x-2 mt-4 text-[10px] text-dark-text-secondary bg-slate-900/50 p-2.5 rounded-xl border border-slate-800/40">
             <Info className="w-4.5 h-4.5 text-accent shrink-0" />
             <p className="m-0 leading-relaxed font-medium">
-              We preprocess the image internally (Grayscale, Contrast enhancement, Denoising) to ensure optimal reading accuracy.
+              Files are stored securely in Firebase Storage. Text parsing runs entirely locally on your device.
             </p>
           </div>
         </div>
@@ -260,23 +279,18 @@ const CollegeHub: React.FC = () => {
                     <div className="min-w-0 flex-1">
                       <h4 className="text-sm font-bold text-white truncate">{sub.name}</h4>
                       <span className="text-xs text-dark-text-secondary mt-0.5 block">
-                        Present: {sub.attendedCount} • Absent: {sub.totalCount - sub.attendedCount} • Total: {sub.totalCount}
+                        Present: {sub.present} • Absent: {sub.absent} • Total: {sub.conducted}
                       </span>
                     </div>
                   </div>
                   <div className="flex items-center space-x-2 shrink-0">
-                    {(() => {
-                      const pct = sub.totalCount === 0 ? 100 : (sub.attendedCount / sub.totalCount) * 100;
-                      return (
-                        <span
-                          className={`text-md font-extrabold ${
-                            pct < sub.targetPercentage ? 'text-error' : 'text-success'
-                          }`}
-                        >
-                          {pct.toFixed(0)}%
-                        </span>
-                      );
-                    })()}
+                    <span
+                      className={`text-md font-extrabold ${
+                        sub.percentage < sub.targetPercentage ? 'text-error' : 'text-success'
+                      }`}
+                    >
+                      {sub.percentage.toFixed(0)}%
+                    </span>
                     <ChevronRight className="w-5 h-5 text-slate-700 group-hover:text-white transition-colors duration-200" />
                   </div>
                 </div>
@@ -307,6 +321,17 @@ const CollegeHub: React.FC = () => {
                         <span className="text-[10px] text-dark-text-secondary block mt-0.5 font-bold uppercase tracking-wider">
                           {c.startTime} - {c.endTime} {c.room && `| Room ${c.room}`}
                         </span>
+                        {/* Display Status */}
+                        {(() => {
+                          const status = getSlotStatus(c.subjectName, c.type);
+                          return (
+                            <span className={`text-[10px] font-bold block mt-1 ${
+                              status === 'Present' ? 'text-success' : status === 'Absent' ? 'text-error' : 'text-accent'
+                            }`}>
+                              Status: {status}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </div>
                     <span
@@ -339,41 +364,6 @@ const CollegeHub: React.FC = () => {
         </div>
 
       </div>
-
-      {/* API Key Modal */}
-      {apiKeyModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-dark-card border border-slate-800/80 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-            <h3 className="text-xl font-bold text-white mb-2">Configure Gemini Key</h3>
-            <p className="text-xs text-dark-text-secondary mb-4 leading-relaxed">
-              To understand your timetable image structure, this app uses Google Gemini Flash AI on the client. Please enter your API Key below:
-            </p>
-            <div className="space-y-4">
-              <input
-                type="password"
-                placeholder="AIzaSy..."
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                className="w-full input-field text-sm font-mono"
-              />
-              <div className="flex space-x-3 pt-2">
-                <button
-                  onClick={() => setApiKeyModal(false)}
-                  className="flex-1 border border-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-2xl text-xs transition-all duration-200 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveApiKey}
-                  className="flex-1 bg-primary hover:bg-primary/95 text-white font-bold py-3 rounded-2xl text-xs transition-all duration-200 cursor-pointer shadow-lg shadow-primary/20"
-                >
-                  Save Key
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
