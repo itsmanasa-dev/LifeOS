@@ -49,17 +49,10 @@ const CollegeHub: React.FC = () => {
     if (!file) return;
 
     setIsExtracting(true);
-    toast.loading('Uploading timetable file to Firebase Storage...', { id: 'ocr' });
+    toast.loading('Extracting timetable layout locally...', { id: 'ocr' });
 
     try {
-      // 1. Upload to Firebase Storage
-      const storageRef = ref(storage, `users/${uid}/timetables/${Date.now()}_${file.name}`);
-      const snapshot = await uploadBytesResumable(storageRef, file);
-      const downloadUrl = await getDownloadURL(snapshot.ref);
-
-      toast.loading('Extracting timetable layout locally...', { id: 'ocr' });
-
-      // 2. Local text extraction using Tesseract.js / PDF.js
+      // 1. Local text extraction using Tesseract.js / PDF.js
       let text = '';
       if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
         text = await ocrService.extractTextFromPDF(file);
@@ -69,8 +62,24 @@ const CollegeHub: React.FC = () => {
 
       toast.loading('Parsing extracted timetable...', { id: 'ocr' });
 
-      // 3. Parser
+      // 2. Parser
       const parsed = ocrService.parseTimetableText(text);
+
+      // 3. Upload to Firebase Storage with an 8-second timeout
+      let downloadUrl = '';
+      try {
+        toast.loading('Saving timetable file to cloud...', { id: 'ocr' });
+        const storageRef = ref(storage, `users/${uid}/timetables/${Date.now()}_${file.name}`);
+        const uploadPromise = uploadBytesResumable(storageRef, file);
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Storage upload timed out')), 8000)
+        );
+        const snapshot = await Promise.race([uploadPromise, timeoutPromise]);
+        downloadUrl = await getDownloadURL(snapshot.ref);
+      } catch (uploadErr) {
+        console.warn('Firebase Storage upload timed out or failed. Falling back to local Object URL.', uploadErr);
+        downloadUrl = URL.createObjectURL(file);
+      }
 
       toast.success('Timetable layout extracted successfully!', { id: 'ocr' });
       // Navigate to preview page passing parsed entries, imageUrl and semester
