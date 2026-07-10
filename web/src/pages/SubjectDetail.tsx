@@ -50,15 +50,16 @@ const SubjectDetail: React.FC = () => {
     .filter((r) => r.subjectId === id)
     .sort((a, b) => b.date.localeCompare(a.date));
 
-  // Recalculated dynamic stats for this subject
-  const totalCount = subjectRecords.length;
-  const attendedCount = subjectRecords.filter((r) => r.status === 'present').length;
-  const absentCount = totalCount - attendedCount;
+  // Stats directly from the Firestore document (not calculated in React)
+  const totalCount = subject.conducted;
+  const attendedCount = subject.present;
+  const absentCount = subject.absent;
+  const percentage = subject.percentage;
+  const isBelowTarget = percentage < subject.targetPercentage;
+
+  // Auxiliary counts for lectures/labs (can be derived from logs)
   const theoryCount = subjectRecords.filter((r) => r.type === 'Lecture').length;
   const labCount = subjectRecords.filter((r) => r.type === 'Lab').length;
-  
-  const percentage = totalCount === 0 ? 100 : (attendedCount / totalCount) * 100;
-  const isBelowTarget = percentage < subject.targetPercentage;
 
   const handleDeleteSubject = async () => {
     if (confirm(`Are you sure you want to delete "${subject.name}"? This deletes all associated attendance logs.`)) {
