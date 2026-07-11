@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
-import { geminiService } from '../services/geminiService';
 import {
-  LogOut, Cloud, Key, SunMoon, Languages, Calendar, Clock, Sliders,
+  LogOut, Cloud, SunMoon, Languages, Calendar, Clock, Sliders,
   Share2, Star, MessageSquare, Shield, FileText,
   ChevronDown, ChevronUp
 } from 'lucide-react';
@@ -12,7 +11,6 @@ import toast from 'react-hot-toast';
 const Settings: React.FC = () => {
   const navigate = useNavigate();
   const { user, signOut } = useAuthStore();
-  const uid = user?.uid || '';
 
   // Local state for interactive preferences matching screenshots
   const [theme, setTheme] = useState(() => localStorage.getItem('pref_theme') || 'System default');
@@ -23,12 +21,6 @@ const Settings: React.FC = () => {
 
   // Original database credentials state
   const [cloudSync, setCloudSync] = useState(true);
-  const [apiKey, setApiKey] = useState('');
-
-  // Load API Key on mount
-  useEffect(() => {
-    setApiKey(geminiService.getApiKey());
-  }, [uid]);
 
   const handleLogout = async () => {
     try {
@@ -43,11 +35,6 @@ const Settings: React.FC = () => {
   const handleToggleSync = (checked: boolean) => {
     setCloudSync(checked);
     toast.success(checked ? 'Cloud sync enabled' : 'Cloud sync paused. Using cached local storage.');
-  };
-
-  const handleSaveApiKey = () => {
-    geminiService.saveApiKey(apiKey.trim());
-    toast.success('Gemini API Key updated!');
   };
 
   const getInitials = (name: string) => {
@@ -222,7 +209,7 @@ const Settings: React.FC = () => {
               </div>
               <div className="text-left">
                 <h4 className="text-sm font-semibold text-white">Advanced settings</h4>
-                <p className="text-xs text-dark-text-secondary mt-0.5">Database Sync, Gemini API Key</p>
+                <p className="text-xs text-dark-text-secondary mt-0.5">Database Sync</p>
               </div>
             </div>
             <div className="text-dark-text-secondary">
@@ -249,37 +236,8 @@ const Settings: React.FC = () => {
                   className="w-9 h-5 bg-slate-900 border border-slate-850 rounded-full appearance-none checked:bg-primary relative before:absolute before:h-4 before:w-4 before:bg-white before:rounded-full before:top-0.5 before:left-0.5 checked:before:translate-x-4 before:transition-transform duration-200 cursor-pointer"
                 />
               </div>
-
-              <hr className="border-slate-800/30 m-0" />
-
-              {/* Gemini Key */}
-              <div className="space-y-3">
-                <div className="flex items-center space-x-3">
-                  <Key className="w-5 h-5 text-dark-text-secondary" />
-                  <div>
-                    <h4 className="text-xs font-bold text-white">Gemini Vision Key</h4>
-                    <p className="text-[10px] text-dark-text-secondary leading-none mt-0.5">Required for AI timetable import OCR.</p>
-                  </div>
-                </div>
-                <div className="flex space-x-2">
-                  <input
-                    type="password"
-                    placeholder="AIzaSy..."
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="flex-1 bg-zinc-950 border border-zinc-900 text-white placeholder-zinc-700 rounded-xl focus:border-blue-500 focus:outline-none transition-colors text-xs font-mono py-2 px-3"
-                  />
-                  <button
-                    onClick={handleSaveApiKey}
-                    className="bg-primary hover:bg-primary/95 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer"
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
             </div>
           )}
-
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { collection, query, where, getDocs, doc, writeBatch, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, writeBatch, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import type { TimetableEntry } from '../types';
 
@@ -14,7 +14,6 @@ export interface TimetableDocument {
   timings: string[];
   days: number[];
   labs: string[];
-  slots: TimetableEntry[];
 }
 
 interface CollegeStoreState {
@@ -47,6 +46,8 @@ const computeMetadata = (slots: TimetableEntry[]) => {
   return { subjects, timings, days, labs };
 };
 
+const daysOfWeekNames = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
 export const useCollegeStore = create<CollegeStoreState>((set, get) => ({
   timetable: [],
   activeSemester: null,
@@ -67,12 +68,38 @@ export const useCollegeStore = create<CollegeStoreState>((set, get) => ({
       
       let activeDoc: TimetableDocument | null = null;
       querySnapshot.forEach((docSnap) => {
-        activeDoc = docSnap.data() as TimetableDocument;
+        activeDoc = { id: docSnap.id, ...docSnap.data() } as TimetableDocument;
       });
 
       if (activeDoc) {
         const docData = activeDoc as TimetableDocument;
-        const entries = [...docData.slots];
+        
+        // Fetch slots subcollection: users/{userId}/timetable/{activeSemester}/slots
+        const slotsSnapshot = await getDocs(
+          collection(db, 'users', userId, 'timetable', docData.semester, 'slots')
+        );
+        
+        const entries: TimetableEntry[] = [];
+        slotsSnapshot.forEach((slotDoc) => {
+          const s = slotDoc.data();
+          entries.push({
+            id: slotDoc.id,
+            subjectName: s.subjectName || s.subject || '',
+            subjectColor: s.subjectColor || '#6366F1',
+            startTime: s.startTime || '',
+            endTime: s.endTime || '',
+            room: s.room || '',
+            teacher: s.teacher || '',
+            dayOfWeek: s.dayOfWeek || 1,
+            day: s.day || 'Monday',
+            type: s.type || 'Lecture',
+            confidence: s.confidence !== undefined ? s.confidence : 100,
+            lowConfidenceFields: s.lowConfidenceFields || [],
+            createdAt: s.createdAt,
+            updatedAt: s.updatedAt,
+          });
+        });
+
         entries.sort((a, b) => {
           if (a.dayOfWeek !== b.dayOfWeek) {
             return a.dayOfWeek - b.dayOfWeek;
@@ -85,7 +112,7 @@ export const useCollegeStore = create<CollegeStoreState>((set, get) => ({
           activeSemester: docData.semester,
           uploadedDate: docData.uploadedDate,
           originalImageUrl: docData.originalImageUrl,
-          activeTimetableId: docData.id,
+          activeTimetableId: docData.semester,
           isLoading: false,
         });
       } else {
@@ -109,26 +136,24 @@ export const useCollegeStore = create<CollegeStoreState>((set, get) => ({
     try {
       const batch = writeBatch(db);
 
-      // 1. Archive existing active timetables
+      // 1. Archive existing active timetables in users/{uid}/timetable
       const q = query(
         collection(db, 'users', userId, 'timetable'),
         where('status', '==', 'active')
       );
       const querySnapshot = await getDocs(q);
       querySnapshot.forEach((docSnap) => {
-        // Archive in users subcollection
         batch.update(docSnap.ref, { status: 'archived' });
-        // Archive in root timetables collection
+        // Archive in root timetables collection if it exists there
         const rootDocRef = doc(db, 'timetables', docSnap.id);
         batch.update(rootDocRef, { status: 'archived' });
       });
 
-      // 2. Create the new timetable document
-      const newTimetableId = `tt-${Date.now()}`;
+      // 2. Create the new timetable semester document
       const { subjects, timings, days, labs } = computeMetadata(entries);
 
       const timetableDoc: TimetableDocument = {
-        id: newTimetableId,
+        id: semester,
         userId,
         semester,
         uploadedDate: new Date().toISOString(),
@@ -138,16 +163,37 @@ export const useCollegeStore = create<CollegeStoreState>((set, get) => ({
         timings,
         days,
         labs,
-        slots: entries,
       };
 
-      // Store in users subcollection users/{uid}/timetable/{id}
-      const userSubDocRef = doc(db, 'users', userId, 'timetable', newTimetableId);
+      // Store in users subcollection users/{uid}/timetable/{semester}
+      const userSubDocRef = doc(db, 'users', userId, 'timetable', semester);
       batch.set(userSubDocRef, timetableDoc);
 
-      // Store in root collection timetables/{id}
-      const rootDocRef = doc(db, 'timetables', newTimetableId);
+      // Store in root collection timetables/{semester}
+      const rootDocRef = doc(db, 'timetables', semester);
       batch.set(rootDocRef, timetableDoc);
+
+      // 3. Write slots into users/{uid}/timetable/{semester}/slots/{slotId}
+      for (const entry of entries) {
+        const slotRef = doc(db, 'users', userId, 'timetable', semester, 'slots', entry.id);
+        const dayName = daysOfWeekNames[entry.dayOfWeek] || 'Monday';
+        batch.set(slotRef, {
+          day: dayName,
+          dayOfWeek: entry.dayOfWeek,
+          startTime: entry.startTime,
+          endTime: entry.endTime,
+          subject: entry.subjectName,
+          subjectName: entry.subjectName,
+          subjectColor: entry.subjectColor,
+          room: entry.room || '',
+          teacher: entry.teacher || '',
+          confidence: entry.confidence ?? 100,
+          createdAt: entry.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          type: entry.type,
+          lowConfidenceFields: entry.lowConfidenceFields || []
+        });
+      }
 
       await batch.commit();
 
@@ -163,7 +209,7 @@ export const useCollegeStore = create<CollegeStoreState>((set, get) => ({
         activeSemester: semester,
         uploadedDate: timetableDoc.uploadedDate,
         originalImageUrl: imageUrl,
-        activeTimetableId: newTimetableId,
+        activeTimetableId: semester,
         isLoading: false,
       });
     } catch (err: any) {
@@ -175,9 +221,9 @@ export const useCollegeStore = create<CollegeStoreState>((set, get) => ({
 
   upsertEntry: async (userId, entry) => {
     try {
-      const activeId = get().activeTimetableId;
-      if (!activeId) {
-        throw new Error('No active timetable found to update.');
+      const activeSem = get().activeSemester;
+      if (!activeSem) {
+        throw new Error('No active semester found to update.');
       }
 
       const currentSlots = [...get().timetable];
@@ -190,20 +236,38 @@ export const useCollegeStore = create<CollegeStoreState>((set, get) => ({
 
       const { subjects, timings, days, labs } = computeMetadata(currentSlots);
 
-      // Update users/{uid}/timetable/{id}
-      const userSubDocRef = doc(db, 'users', userId, 'timetable', activeId);
+      // 1. Update the slot document: users/{uid}/timetable/{semester}/slots/{slotId}
+      const dayName = daysOfWeekNames[entry.dayOfWeek] || 'Monday';
+      const slotRef = doc(db, 'users', userId, 'timetable', activeSem, 'slots', entry.id);
+      await setDoc(slotRef, {
+        day: dayName,
+        dayOfWeek: entry.dayOfWeek,
+        startTime: entry.startTime,
+        endTime: entry.endTime,
+        subject: entry.subjectName,
+        subjectName: entry.subjectName,
+        subjectColor: entry.subjectColor,
+        room: entry.room || '',
+        teacher: entry.teacher || '',
+        confidence: entry.confidence ?? 100,
+        createdAt: entry.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        type: entry.type,
+        lowConfidenceFields: entry.lowConfidenceFields || []
+      });
+
+      // 2. Update metadata in semester document: users/{uid}/timetable/{semester}
+      const userSubDocRef = doc(db, 'users', userId, 'timetable', activeSem);
       await updateDoc(userSubDocRef, {
-        slots: currentSlots,
         subjects,
         timings,
         days,
         labs,
       });
 
-      // Update timetables/{id}
-      const rootDocRef = doc(db, 'timetables', activeId);
+      // Update root metadata too
+      const rootDocRef = doc(db, 'timetables', activeSem);
       await updateDoc(rootDocRef, {
-        slots: currentSlots,
         subjects,
         timings,
         days,
@@ -226,28 +290,30 @@ export const useCollegeStore = create<CollegeStoreState>((set, get) => ({
 
   deleteEntry: async (userId, id) => {
     try {
-      const activeId = get().activeTimetableId;
-      if (!activeId) {
-        throw new Error('No active timetable found to delete entry from.');
+      const activeSem = get().activeSemester;
+      if (!activeSem) {
+        throw new Error('No active semester found to delete entry from.');
       }
+
+      // 1. Delete the slot document: users/{uid}/timetable/{semester}/slots/{slotId}
+      const slotRef = doc(db, 'users', userId, 'timetable', activeSem, 'slots', id);
+      await deleteDoc(slotRef);
 
       const currentSlots = get().timetable.filter((s) => s.id !== id);
       const { subjects, timings, days, labs } = computeMetadata(currentSlots);
 
-      // Update users/{uid}/timetable/{id}
-      const userSubDocRef = doc(db, 'users', userId, 'timetable', activeId);
+      // 2. Update metadata in semester document: users/{uid}/timetable/{semester}
+      const userSubDocRef = doc(db, 'users', userId, 'timetable', activeSem);
       await updateDoc(userSubDocRef, {
-        slots: currentSlots,
         subjects,
         timings,
         days,
         labs,
       });
 
-      // Update timetables/{id}
-      const rootDocRef = doc(db, 'timetables', activeId);
+      // Update root metadata too
+      const rootDocRef = doc(db, 'timetables', activeSem);
       await updateDoc(rootDocRef, {
-        slots: currentSlots,
         subjects,
         timings,
         days,

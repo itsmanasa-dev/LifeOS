@@ -7,9 +7,14 @@ export interface TimetableEntry {
   startTime: string;
   endTime: string;
   room?: string;
+  teacher?: string;
   dayOfWeek: number; // 1 = Monday, 7 = Sunday
+  day?: string;
   type: 'Lecture' | 'Lab';
+  confidence?: number;
   lowConfidenceFields?: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AttendanceSubject {

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCollegeStore } from '../store/useCollegeStore';
 import { useAttendanceStore } from '../store/useAttendanceStore';
-import { ocrService } from '../services/ocrService';
+import { ocrService, type ProcessProgress } from '../services/ocrService';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { storage } from '../firebase/config';
 import { 
@@ -22,6 +22,8 @@ const CollegeHub: React.FC = () => {
   const uid = user?.uid || '';
 
   const [isExtracting, setIsExtracting] = useState(false);
+
+  const [progress, setProgress] = useState<ProcessProgress | null>(null);
 
   useEffect(() => {
     if (uid) {
@@ -48,27 +50,41 @@ const CollegeHub: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Validate file size (10MB limit)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File size exceeds the 10MB limit. Please upload a smaller image or PDF.');
+      return;
+    }
+
     setIsExtracting(true);
-    toast.loading('Extracting timetable layout locally...', { id: 'ocr' });
+    setProgress({ stage: 'Uploading', progress: 0, detail: 'Preparing file...' });
+    toast.loading('Initializing timetable import...', { id: 'ocr' });
 
     try {
-      // 1. Local text extraction using Tesseract.js / PDF.js
-      let text = '';
+      let parsed;
       if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-        text = await ocrService.extractTextFromPDF(file);
+        setProgress({ stage: 'Preprocessing', progress: 20, detail: 'Reading PDF pages...' });
+        const text = await ocrService.extractTextFromPDF(file);
+        
+        setProgress({ stage: 'Parsing Timetable', progress: 70, detail: 'Extracting PDF timetable slots...' });
+        parsed = ocrService.parseTimetableText(text);
       } else {
-        text = await ocrService.extractTextFromImage(file);
+        // Image parsing using OpenCV + Tesseract.js Worker
+        parsed = await ocrService.extractTimetableFromImage(file, (p) => {
+          setProgress(p);
+          toast.loading(`${p.stage}: ${p.detail || `${p.progress}%`}`, { id: 'ocr' });
+        });
       }
 
-      toast.loading('Parsing extracted timetable...', { id: 'ocr' });
+      if (!parsed.slots || parsed.slots.length === 0) {
+        throw new Error("We couldn't detect your timetable. Try uploading a clearer image or PDF.");
+      }
 
-      // 2. Parser
-      const parsed = ocrService.parseTimetableText(text);
+      setProgress({ stage: 'Preparing Review', progress: 95, detail: 'Saving file reference...' });
 
-      // 3. Upload to Firebase Storage with an 8-second timeout
+      // Upload to Firebase Storage with timeout
       let downloadUrl = '';
       try {
-        toast.loading('Saving timetable file to cloud...', { id: 'ocr' });
         const storageRef = ref(storage, `users/${uid}/timetables/${Date.now()}_${file.name}`);
         const uploadPromise = uploadBytesResumable(storageRef, file);
         const timeoutPromise = new Promise<never>((_, reject) => 
@@ -82,7 +98,6 @@ const CollegeHub: React.FC = () => {
       }
 
       toast.success('Timetable layout extracted successfully!', { id: 'ocr' });
-      // Navigate to preview page passing parsed entries, imageUrl and semester
       navigate('/college/import-preview', { 
         state: { 
           entries: parsed.slots,
@@ -92,9 +107,13 @@ const CollegeHub: React.FC = () => {
       });
     } catch (err: any) {
       console.error(err);
-      toast.error(err.message || 'Timetable text extraction failed.', { id: 'ocr' });
+      toast.error(
+        err.message || "We couldn't detect your timetable. Try uploading a clearer image or PDF.", 
+        { id: 'ocr' }
+      );
     } finally {
       setIsExtracting(false);
+      setProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -229,13 +248,25 @@ const CollegeHub: React.FC = () => {
 
           <div
             onClick={() => !isExtracting && fileInputRef.current?.click()}
-            className="border-2 border-dashed border-slate-800 hover:border-primary/50 bg-slate-900/30 hover:bg-slate-900/50 rounded-2xl py-8 px-4 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 group"
+            className="border-2 border-dashed border-slate-800 hover:border-primary/50 bg-slate-900/30 hover:bg-slate-900/50 rounded-2xl py-8 px-4 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 group min-h-[170px]"
           >
             {isExtracting ? (
-              <div className="text-center space-y-3">
+              <div className="text-center space-y-3.5 w-full max-w-xs mx-auto">
                 <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
-                <h4 className="text-sm font-bold text-white">Analyzing layout...</h4>
-                <p className="text-xs text-dark-text-secondary">Extracting schedule text locally.</p>
+                <h4 className="text-sm font-bold text-white tracking-tight">{progress?.stage || 'Analyzing layout...'}</h4>
+                {progress && (
+                  <div className="space-y-2">
+                    <div className="w-full bg-slate-800/80 rounded-full h-1.5 overflow-hidden">
+                      <div 
+                        className="bg-primary h-full transition-all duration-300 ease-out" 
+                        style={{ width: `${progress.progress}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-dark-text-secondary font-semibold">
+                      {progress.detail || `${progress.progress}% completed`}
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center space-y-2.5">

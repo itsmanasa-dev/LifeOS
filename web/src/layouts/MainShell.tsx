@@ -53,17 +53,17 @@ const MainShell: React.FC = () => {
               <button
                 key={item.path}
                 onClick={() => navigate(item.path)}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 relative group cursor-pointer ${
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 relative group cursor-pointer ${
                   active
-                    ? 'bg-slate-850 text-white border border-slate-800/30'
-                    : 'text-dark-text-secondary hover:text-white hover:bg-slate-850/50'
+                    ? 'bg-slate-850 text-white border border-slate-800/30 shadow-[0_4px_12px_rgba(99,102,241,0.06)]'
+                    : 'text-dark-text-secondary hover:text-white hover:bg-slate-850/40 hover:translate-x-1'
                 }`}
               >
                 {active && (
                   <div className="absolute left-1.5 top-2.5 bottom-2.5 w-1 bg-primary rounded-full" />
                 )}
-                <ActiveIcon className={`w-5 h-5 transition-transform duration-200 group-hover:scale-105 ${active ? 'text-primary' : 'text-dark-text-secondary'}`} />
-                <span>{item.label}</span>
+                <ActiveIcon className={`w-5 h-5 transition-all duration-300 group-hover:scale-110 ${active ? 'text-primary' : 'text-dark-text-secondary group-hover:text-primary'}`} />
+                <span className="transition-colors duration-300">{item.label}</span>
               </button>
             );
           })}
