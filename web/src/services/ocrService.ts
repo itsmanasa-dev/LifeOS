@@ -537,6 +537,9 @@ export const ocrService = {
   /**
    * Offline-ready, client-side OpenCV.js + Tesseract.js timetable layout parser
    */
+  /**
+   * Offline-ready, client-side OpenCV.js + Tesseract.js timetable layout parser
+   */
   async extractTimetableFromImage(
     file: File,
     onProgress?: (progress: ProcessProgress) => void
@@ -685,11 +688,24 @@ export const ocrService = {
 
       if (onProgress) onProgress({ stage: 'Detecting Table', progress: 80 });
 
-      // Threshold the warped table
-      let warpedThresh = new cv.Mat();
-      cv.adaptiveThreshold(warpedTable, warpedThresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
+      // Scale down warped table if too large to speed up Tesseract and prevent UI lag
+      const maxDim = 1200;
+      let scale = 1.0;
+      if (warpedTable.cols > maxDim || warpedTable.rows > maxDim) {
+        scale = maxDim / Math.max(warpedTable.cols, warpedTable.rows);
+      }
 
-      // 8. Detect lines (morphological processing)
+      let processedTable = warpedTable.clone();
+      if (scale < 1.0) {
+        let dsize = new cv.Size(Math.round(warpedTable.cols * scale), Math.round(warpedTable.rows * scale));
+        cv.resize(warpedTable, processedTable, dsize, 0, 0, cv.INTER_AREA);
+      }
+
+      // Threshold the processed table
+      let warpedThresh = new cv.Mat();
+      cv.adaptiveThreshold(processedTable, warpedThresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
+
+      // 8. Detect lines (morphological processing on scaled image)
       let horizontal = warpedThresh.clone();
       let horizontalSize = Math.max(15, Math.floor(warpedThresh.cols / 30));
       let horizontalStructure = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(horizontalSize, 1));
@@ -739,8 +755,8 @@ export const ocrService = {
       if (cells.length < 5) {
         const rowsCount = 8;
         const colsCount = 6;
-        const cellW = warpedTable.cols / colsCount;
-        const cellH = warpedTable.rows / rowsCount;
+        const cellW = processedTable.cols / colsCount;
+        const cellH = processedTable.rows / rowsCount;
         cells = [];
         for (let r = 0; r < rowsCount; r++) {
           for (let c = 0; c < colsCount; c++) {
@@ -754,7 +770,7 @@ export const ocrService = {
         }
       }
 
-      // Sort cells top-to-bottom, left-to-right (roughly) to help progress ordering
+      // Sort cells top-to-bottom, left-to-right
       cells.sort((a, b) => {
         if (Math.abs(a.y - b.y) < 15) {
           return a.x - b.x;
@@ -762,59 +778,63 @@ export const ocrService = {
         return a.y - b.y;
       });
 
-      // 10. Pass cells to Tesseract.js running in worker
-      if (onProgress) onProgress({ stage: 'Reading Text', progress: 0, detail: `0/${cells.length} cells recognized` });
+      // 10. Pass processedTable to Tesseract.js (Run once on full image to prevent UI lag)
+      if (onProgress) onProgress({ stage: 'Reading Text', progress: 30, detail: 'Recognizing full table text...' });
 
       const worker = await getTesseractWorker();
-      const parsedCells: OCRCell[] = [];
+      
+      let tempCanvas = document.createElement('canvas');
+      cv.imshow(tempCanvas, processedTable);
 
-      for (let i = 0; i < cells.length; i++) {
-        const cell = cells[i];
+      const result = await worker.recognize(tempCanvas);
+      const words = result.data.words || [];
 
-        let rect = new cv.Rect(cell.x, cell.y, cell.width, cell.height);
-        let cropped = warpedTable.roi(rect);
+      if (onProgress) onProgress({ stage: 'Reading Text', progress: 80, detail: 'Mapping text to grid cells...' });
 
-        // Add white margin border padding
-        let padded = new cv.Mat();
-        let border = 8;
-        cv.copyMakeBorder(cropped, padded, border, border, border, border, cv.BORDER_CONSTANT, new cv.Scalar(255, 255, 255, 255));
+      // Initialize text/confidence for each cell
+      const parsedCells: OCRCell[] = cells.map(cell => ({
+        x: cell.x,
+        y: cell.y,
+        width: cell.width,
+        height: cell.height,
+        text: '',
+        confidence: 100,
+        wordConfs: [] as number[],
+        wordTexts: [] as { text: string, x: number }[]
+      })) as any;
 
-        let tempCanvas = document.createElement('canvas');
-        cv.imshow(tempCanvas, padded);
+      // Map each word to the cell that contains its center
+      for (const word of words) {
+        const text = word.text.trim();
+        if (!text) continue;
 
-        cropped.delete();
-        padded.delete();
+        const cx = (word.bbox.x0 + word.bbox.x1) / 2;
+        const cy = (word.bbox.y0 + word.bbox.y1) / 2;
 
-        try {
-          const result = await worker.recognize(tempCanvas);
-          parsedCells.push({
-            x: cell.x,
-            y: cell.y,
-            width: cell.width,
-            height: cell.height,
-            text: result.data.text.trim(),
-            confidence: result.data.confidence
-          });
-        } catch (err) {
-          console.error('Cell OCR error:', err);
-          parsedCells.push({
-            x: cell.x,
-            y: cell.y,
-            width: cell.width,
-            height: cell.height,
-            text: '',
-            confidence: 0
-          });
+        // Find the cell containing the center of this word
+        for (const cell of parsedCells as any) {
+          if (cx >= cell.x && cx <= cell.x + cell.width &&
+              cy >= cell.y && cy <= cell.y + cell.height) {
+            cell.wordTexts.push({ text, x: word.bbox.x0 });
+            cell.wordConfs.push(word.confidence);
+            break;
+          }
+        }
+      }
+
+      // Finalize text and confidence for each cell
+      for (const cell of parsedCells as any) {
+        cell.wordTexts.sort((a: any, b: any) => a.x - b.x);
+        cell.text = cell.wordTexts.map((w: any) => w.text).join(' ');
+        
+        if (cell.wordConfs.length > 0) {
+          cell.confidence = Math.round(cell.wordConfs.reduce((sum: number, c: number) => sum + c, 0) / cell.wordConfs.length);
+        } else {
+          cell.confidence = 100; // Empty cells default to 100%
         }
 
-        if (onProgress) {
-          const pct = Math.floor(((i + 1) / cells.length) * 100);
-          onProgress({
-            stage: 'Reading Text',
-            progress: pct,
-            detail: `Read cell ${i + 1}/${cells.length} (${pct}%)`
-          });
-        }
+        delete cell.wordTexts;
+        delete cell.wordConfs;
       }
 
       // Cleanup opencv mats
@@ -826,6 +846,7 @@ export const ocrService = {
       deskewedThresh.delete();
       deskewedContrast.delete();
       warpedTable.delete();
+      processedTable.delete();
 
       if (onProgress) onProgress({ stage: 'Parsing Timetable', progress: 50 });
 
