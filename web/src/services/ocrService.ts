@@ -1,4 +1,6 @@
 import { createWorker } from 'tesseract.js';
+// @ts-ignore
+import OCRWorker from './ocr.worker?worker';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import type { TimetableEntry } from '../types';
@@ -85,71 +87,7 @@ async function getTesseractWorker() {
   return tesseractWorker;
 }
 
-// Global OpenCV.js load cache
-let cvInstance: any = null;
-let cvLoadingPromise: Promise<any> | null = null;
-
-async function loadOpenCV(): Promise<any> {
-  if (cvInstance) return cvInstance;
-  if (cvLoadingPromise) return cvLoadingPromise;
-
-  cvLoadingPromise = new Promise((resolve, reject) => {
-    if ((window as any).cv) {
-      cvInstance = (window as any).cv;
-      resolve(cvInstance);
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = '/opencv.js';
-    script.async = true;
-    script.onload = () => {
-      const checkCV = () => {
-        if ((window as any).cv && ((window as any).cv.Mat || (window as any).cv.onRuntimeInitialized)) {
-          if ((window as any).cv.Mat) {
-            cvInstance = (window as any).cv;
-            resolve(cvInstance);
-          } else {
-            setTimeout(checkCV, 50);
-          }
-        } else {
-          setTimeout(checkCV, 50);
-        }
-      };
-
-      if ((window as any).cv && (window as any).cv.onRuntimeInitialized) {
-        const prev = (window as any).cv.onRuntimeInitialized;
-        (window as any).cv.onRuntimeInitialized = () => {
-          prev?.();
-          cvInstance = (window as any).cv;
-          resolve(cvInstance);
-        };
-      } else {
-        checkCV();
-      }
-    };
-    script.onerror = (err) => {
-      console.error('OpenCV load error:', err);
-      reject(new Error('Failed to load OpenCV.js. Verify it exists in public/opencv.js'));
-    };
-    document.body.appendChild(script);
-  });
-
-  return cvLoadingPromise;
-}
-
-function loadImage(file: File): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(img);
-    };
-    img.onerror = (err) => reject(err);
-    img.src = url;
-  });
-}
+// OpenCV loading and image preprocessing offloaded to ocr.worker.ts
 
 function build2DGrid(cells: OCRCell[]): (OCRCell | null)[][] {
   if (cells.length === 0) return [];
@@ -537,339 +475,129 @@ export const ocrService = {
   /**
    * Offline-ready, client-side OpenCV.js + Tesseract.js timetable layout parser
    */
-  /**
-   * Offline-ready, client-side OpenCV.js + Tesseract.js timetable layout parser
-   */
   async extractTimetableFromImage(
     file: File,
     onProgress?: (progress: ProcessProgress) => void
   ): Promise<ParsedTimetable> {
-    try {
+    return new Promise((resolve, reject) => {
       if (onProgress) onProgress({ stage: 'Uploading', progress: 50 });
       if (onProgress) onProgress({ stage: 'Preprocessing', progress: 10 });
 
-      // Load OpenCV.js dynamically if not already available
-      const cv = await loadOpenCV();
-      const imgElement = await loadImage(file);
+      // @ts-ignore
+      const worker = new OCRWorker();
 
-      // Create src Mat
-      let src = cv.imread(imgElement);
+      worker.onmessage = async (e: MessageEvent) => {
+        const { type, data, error } = e.data;
 
-      // 1. Grayscale
-      let gray = new cv.Mat();
-      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-      if (onProgress) onProgress({ stage: 'Preprocessing', progress: 30 });
+        if (type === 'progress') {
+          if (onProgress) onProgress(data);
+        } else if (type === 'error') {
+          worker.terminate();
+          reject(new Error(error));
+        } else if (type === 'success') {
+          worker.terminate();
+          try {
+            const { cells, processedBitmap } = data;
 
-      // 2. Reduce image noise (Gaussian Blur)
-      let blurred = new cv.Mat();
-      cv.GaussianBlur(gray, blurred, new cv.Size(3, 3), 0, 0, cv.BORDER_DEFAULT);
-      if (onProgress) onProgress({ stage: 'Preprocessing', progress: 50 });
+            if (onProgress) onProgress({ stage: 'Reading Text', progress: 30, detail: 'Recognizing full table text...' });
 
-      // 3. Increase contrast (CLAHE)
-      let contrast = new cv.Mat();
-      let clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
-      clahe.apply(blurred, contrast);
-      clahe.delete();
-      if (onProgress) onProgress({ stage: 'Preprocessing', progress: 70 });
+            // Create temporary canvas to draw the preprocessed image for Tesseract
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = processedBitmap.width;
+            tempCanvas.height = processedBitmap.height;
+            const ctx = tempCanvas.getContext('2d');
+            if (!ctx) {
+              throw new Error('Failed to get 2d context for Tesseract canvas');
+            }
+            ctx.drawImage(processedBitmap, 0, 0);
 
-      // 4. Adaptive Threshold
-      let thresh = new cv.Mat();
-      cv.adaptiveThreshold(contrast, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
-      if (onProgress) onProgress({ stage: 'Preprocessing', progress: 90 });
+            // Clean up the processedBitmap
+            processedBitmap.close();
 
-      // 5. Deskew (straighten image)
-      let nonZero = new cv.Mat();
-      cv.findNonZero(thresh, nonZero);
-      let deskewedThresh = thresh.clone();
-      let deskewedContrast = contrast.clone();
-      
-      let angle = 0;
-      if (nonZero.rows > 0) {
-        let rotatedRect = cv.minAreaRect(nonZero);
-        angle = rotatedRect.angle;
-        if (angle < -45) {
-          angle = angle + 90;
-        } else if (angle > 45) {
-          angle = angle - 90;
-        }
-        
-        if (Math.abs(angle) > 0.5 && Math.abs(angle) < 45) {
-          let center = new cv.Point(thresh.cols / 2, thresh.rows / 2);
-          let M = cv.getRotationMatrix2D(center, angle, 1.0);
-          let dsize = new cv.Size(thresh.cols, thresh.rows);
-          
-          cv.warpAffine(thresh, deskewedThresh, M, dsize, cv.INTER_CUBIC, cv.BORDER_REPLICATE, new cv.Scalar());
-          cv.warpAffine(contrast, deskewedContrast, M, dsize, cv.INTER_CUBIC, cv.BORDER_REPLICATE, new cv.Scalar());
-          M.delete();
-        }
-      }
-      nonZero.delete();
+            const tesseractWorker = await getTesseractWorker();
+            const result = await tesseractWorker.recognize(tempCanvas);
+            const words = result.data.words || [];
 
-      if (onProgress) onProgress({ stage: 'Detecting Table', progress: 20 });
+            if (onProgress) onProgress({ stage: 'Reading Text', progress: 80, detail: 'Mapping text to grid cells...' });
 
-      // 6. Detect timetable boundaries
-      let contours = new cv.MatVector();
-      let hierarchy = new cv.Mat();
-      cv.findContours(deskewedThresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            // Initialize text/confidence for each cell
+            const parsedCells: OCRCell[] = cells.map((cell: any) => ({
+              x: cell.x,
+              y: cell.y,
+              width: cell.width,
+              height: cell.height,
+              text: '',
+              confidence: 100,
+              wordConfs: [] as number[],
+              wordTexts: [] as { text: string, x: number }[]
+            })) as any;
 
-      let maxArea = 0;
-      let maxContourIdx = -1;
-      for (let i = 0; i < contours.size(); ++i) {
-        let contour = contours.get(i);
-        let area = cv.contourArea(contour);
-        if (area > maxArea) {
-          maxArea = area;
-          maxContourIdx = i;
-        }
-      }
+            // Map each word to the cell that contains its center
+            for (const word of words) {
+              const text = word.text.trim();
+              if (!text) continue;
 
-      let warpedTable = deskewedContrast.clone();
+              const cx = (word.bbox.x0 + word.bbox.x1) / 2;
+              const cy = (word.bbox.y0 + word.bbox.y1) / 2;
 
-      if (maxContourIdx !== -1) {
-        let contour = contours.get(maxContourIdx);
-        let peri = cv.arcLength(contour, true);
-        let approx = new cv.Mat();
-        cv.approxPolyDP(contour, approx, 0.02 * peri, true);
-        
-        if (approx.rows === 4 && maxArea > (deskewedThresh.cols * deskewedThresh.rows * 0.15)) {
-          if (onProgress) onProgress({ stage: 'Detecting Table', progress: 60 });
-          
-          // 7. Perspective correction
-          let pts = [];
-          for (let i = 0; i < 4; i++) {
-            pts.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
-          }
-          
-          pts.sort((a, b) => a.y - b.y);
-          let topPts = pts.slice(0, 2).sort((a, b) => a.x - b.x);
-          let bottomPts = pts.slice(2, 4).sort((a, b) => a.x - b.x);
-          
-          let topLeft = topPts[0];
-          let topRight = topPts[1];
-          let bottomLeft = bottomPts[0];
-          let bottomRight = bottomPts[1];
+              // Find the cell containing the center of this word
+              for (const cell of parsedCells as any) {
+                if (cx >= cell.x && cx <= cell.x + cell.width &&
+                    cy >= cell.y && cy <= cell.y + cell.height) {
+                  cell.wordTexts.push({ text, x: word.bbox.x0 });
+                  cell.wordConfs.push(word.confidence);
+                  break;
+                }
+              }
+            }
 
-          let widthA = Math.hypot(bottomRight.x - bottomLeft.x, bottomRight.y - bottomLeft.y);
-          let widthB = Math.hypot(topRight.x - topLeft.x, topRight.y - topLeft.y);
-          let maxWidth = Math.max(widthA, widthB);
+            // Finalize text and confidence for each cell
+            for (const cell of parsedCells as any) {
+              cell.wordTexts.sort((a: any, b: any) => a.x - b.x);
+              cell.text = cell.wordTexts.map((w: any) => w.text).join(' ');
 
-          let heightA = Math.hypot(topRight.x - bottomRight.x, topRight.y - bottomRight.y);
-          let heightB = Math.hypot(topLeft.x - bottomLeft.x, topLeft.y - bottomLeft.y);
-          let maxHeight = Math.max(heightA, heightB);
+              if (cell.wordConfs.length > 0) {
+                cell.confidence = Math.round(cell.wordConfs.reduce((sum: number, c: number) => sum + c, 0) / cell.wordConfs.length);
+              } else {
+                cell.confidence = 100; // Empty cells default to 100%
+              }
 
-          let srcCoords = cv.matFromArray(4, 1, cv.CV_32FC2, [
-            topLeft.x, topLeft.y,
-            topRight.x, topRight.y,
-            bottomRight.x, bottomRight.y,
-            bottomLeft.x, bottomLeft.y
-          ]);
+              delete cell.wordTexts;
+              delete cell.wordConfs;
+            }
 
-          let dstCoords = cv.matFromArray(4, 1, cv.CV_32FC2, [
-            0, 0,
-            maxWidth - 1, 0,
-            maxWidth - 1, maxHeight - 1,
-            0, maxHeight - 1
-          ]);
+            if (onProgress) onProgress({ stage: 'Parsing Timetable', progress: 50 });
 
-          let M = cv.getPerspectiveTransform(srcCoords, dstCoords);
-          warpedTable.delete();
-          warpedTable = new cv.Mat();
-          cv.warpPerspective(deskewedContrast, warpedTable, M, new cv.Size(maxWidth, maxHeight));
+            // Run Timetable Parser
+            const slots = parseOCRGrid(parsedCells);
 
-          srcCoords.delete();
-          dstCoords.delete();
-          M.delete();
-        }
-        approx.delete();
-      }
-      
-      contours.delete();
-      hierarchy.delete();
+            // Detect semester from cells
+            let semester = 'Semester 1';
+            const semRegex = /(?:semester|sem|term|yr|year)\s*[-:]?\s*([i|v|x\d]+)/i;
+            for (const cell of parsedCells) {
+              const match = cell.text.match(semRegex);
+              if (match) {
+                semester = `Semester ${match[1].toUpperCase()}`;
+                break;
+              }
+            }
 
-      if (onProgress) onProgress({ stage: 'Detecting Table', progress: 80 });
-
-      // Scale down warped table if too large to speed up Tesseract and prevent UI lag
-      const maxDim = 1200;
-      let scale = 1.0;
-      if (warpedTable.cols > maxDim || warpedTable.rows > maxDim) {
-        scale = maxDim / Math.max(warpedTable.cols, warpedTable.rows);
-      }
-
-      let processedTable = warpedTable.clone();
-      if (scale < 1.0) {
-        let dsize = new cv.Size(Math.round(warpedTable.cols * scale), Math.round(warpedTable.rows * scale));
-        cv.resize(warpedTable, processedTable, dsize, 0, 0, cv.INTER_AREA);
-      }
-
-      // Threshold the processed table
-      let warpedThresh = new cv.Mat();
-      cv.adaptiveThreshold(processedTable, warpedThresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
-
-      // 8. Detect lines (morphological processing on scaled image)
-      let horizontal = warpedThresh.clone();
-      let horizontalSize = Math.max(15, Math.floor(warpedThresh.cols / 30));
-      let horizontalStructure = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(horizontalSize, 1));
-      cv.erode(horizontal, horizontal, horizontalStructure);
-      cv.dilate(horizontal, horizontal, horizontalStructure);
-      horizontalStructure.delete();
-
-      let vertical = warpedThresh.clone();
-      let verticalSize = Math.max(15, Math.floor(warpedThresh.rows / 30));
-      let verticalStructure = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(1, verticalSize));
-      cv.erode(vertical, vertical, verticalStructure);
-      cv.dilate(vertical, vertical, verticalStructure);
-      verticalStructure.delete();
-
-      let tableMask = new cv.Mat();
-      cv.add(horizontal, vertical, tableMask);
-
-      let dilateKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(2, 2));
-      cv.dilate(tableMask, tableMask, dilateKernel);
-      dilateKernel.delete();
-
-      // 9. Cell extraction contours
-      let cellMask = new cv.Mat();
-      cv.bitwise_not(tableMask, cellMask);
-
-      let cellContours = new cv.MatVector();
-      let cellHierarchy = new cv.Mat();
-      cv.findContours(cellMask, cellContours, cellHierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-      let cells: { x: number, y: number, width: number, height: number }[] = [];
-      for (let i = 0; i < cellContours.size(); ++i) {
-        let rect = cv.boundingRect(cellContours.get(i));
-        if (rect.width > 25 && rect.height > 15) {
-          cells.push(rect);
-        }
-      }
-
-      cellContours.delete();
-      cellHierarchy.delete();
-      cellMask.delete();
-      tableMask.delete();
-      horizontal.delete();
-      vertical.delete();
-      warpedThresh.delete();
-
-      // Synthetic grid fallback
-      if (cells.length < 5) {
-        const rowsCount = 8;
-        const colsCount = 6;
-        const cellW = processedTable.cols / colsCount;
-        const cellH = processedTable.rows / rowsCount;
-        cells = [];
-        for (let r = 0; r < rowsCount; r++) {
-          for (let c = 0; c < colsCount; c++) {
-            cells.push({
-              x: Math.floor(c * cellW),
-              y: Math.floor(r * cellH),
-              width: Math.floor(cellW),
-              height: Math.floor(cellH)
-            });
+            if (onProgress) onProgress({ stage: 'Preparing Review', progress: 100 });
+            resolve({ slots, semester });
+          } catch (err: any) {
+            reject(new Error(`Failed to parse preprocessed image: ${err.message || err}`));
           }
         }
-      }
+      };
 
-      // Sort cells top-to-bottom, left-to-right
-      cells.sort((a, b) => {
-        if (Math.abs(a.y - b.y) < 15) {
-          return a.x - b.x;
-        }
-        return a.y - b.y;
-      });
+      worker.onerror = (err) => {
+        worker.terminate();
+        reject(new Error(`Worker error: ${err.message}`));
+      };
 
-      // 10. Pass processedTable to Tesseract.js (Run once on full image to prevent UI lag)
-      if (onProgress) onProgress({ stage: 'Reading Text', progress: 30, detail: 'Recognizing full table text...' });
-
-      const worker = await getTesseractWorker();
-      
-      let tempCanvas = document.createElement('canvas');
-      cv.imshow(tempCanvas, processedTable);
-
-      const result = await worker.recognize(tempCanvas);
-      const words = result.data.words || [];
-
-      if (onProgress) onProgress({ stage: 'Reading Text', progress: 80, detail: 'Mapping text to grid cells...' });
-
-      // Initialize text/confidence for each cell
-      const parsedCells: OCRCell[] = cells.map(cell => ({
-        x: cell.x,
-        y: cell.y,
-        width: cell.width,
-        height: cell.height,
-        text: '',
-        confidence: 100,
-        wordConfs: [] as number[],
-        wordTexts: [] as { text: string, x: number }[]
-      })) as any;
-
-      // Map each word to the cell that contains its center
-      for (const word of words) {
-        const text = word.text.trim();
-        if (!text) continue;
-
-        const cx = (word.bbox.x0 + word.bbox.x1) / 2;
-        const cy = (word.bbox.y0 + word.bbox.y1) / 2;
-
-        // Find the cell containing the center of this word
-        for (const cell of parsedCells as any) {
-          if (cx >= cell.x && cx <= cell.x + cell.width &&
-              cy >= cell.y && cy <= cell.y + cell.height) {
-            cell.wordTexts.push({ text, x: word.bbox.x0 });
-            cell.wordConfs.push(word.confidence);
-            break;
-          }
-        }
-      }
-
-      // Finalize text and confidence for each cell
-      for (const cell of parsedCells as any) {
-        cell.wordTexts.sort((a: any, b: any) => a.x - b.x);
-        cell.text = cell.wordTexts.map((w: any) => w.text).join(' ');
-        
-        if (cell.wordConfs.length > 0) {
-          cell.confidence = Math.round(cell.wordConfs.reduce((sum: number, c: number) => sum + c, 0) / cell.wordConfs.length);
-        } else {
-          cell.confidence = 100; // Empty cells default to 100%
-        }
-
-        delete cell.wordTexts;
-        delete cell.wordConfs;
-      }
-
-      // Cleanup opencv mats
-      src.delete();
-      gray.delete();
-      blurred.delete();
-      contrast.delete();
-      thresh.delete();
-      deskewedThresh.delete();
-      deskewedContrast.delete();
-      warpedTable.delete();
-      processedTable.delete();
-
-      if (onProgress) onProgress({ stage: 'Parsing Timetable', progress: 50 });
-
-      // 11. Run Timetable Parser
-      const slots = parseOCRGrid(parsedCells);
-
-      // Detect semester from cells
-      let semester = 'Semester 1';
-      const semRegex = /(?:semester|sem|term|yr|year)\s*[-:]?\s*([i|v|x\d]+)/i;
-      for (const cell of parsedCells) {
-        const match = cell.text.match(semRegex);
-        if (match) {
-          semester = `Semester ${match[1].toUpperCase()}`;
-          break;
-        }
-      }
-
-      if (onProgress) onProgress({ stage: 'Preparing Review', progress: 100 });
-      return { slots, semester };
-    } catch (err: any) {
-      console.error('Offline OCR Pipeline Error:', err);
-      throw new Error(`Failed to extract timetable: ${err.message || err}`);
-    }
+      // Post the file to the worker
+      worker.postMessage({ file });
+    });
   },
 
   /**
