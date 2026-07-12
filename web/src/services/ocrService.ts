@@ -1,6 +1,5 @@
 import { createWorker } from 'tesseract.js';
-// @ts-ignore
-import OCRWorker from './ocr.worker?worker';
+// ocr.worker.ts will be imported inline via new Worker(new URL(...))
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import type { TimetableEntry } from '../types';
@@ -450,6 +449,45 @@ function parseOCRGrid(cells: OCRCell[]): TimetableEntry[] {
 
 export const ocrService = {
   /**
+   * Convert PDF page 1 to an Image Blob using PDF.js
+   */
+  async convertPDFToImage(file: File): Promise<Blob> {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+      const pdf = await loadingTask.promise;
+      if (pdf.numPages === 0) {
+        throw new Error('PDF has no pages');
+      }
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale: 2.0 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        throw new Error('Failed to get 2d context for PDF rendering');
+      }
+      await page.render({
+        canvasContext: context,
+        viewport: viewport
+      }).promise;
+      return new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Failed to convert PDF canvas to image blob'));
+          }
+        }, 'image/png');
+      });
+    } catch (err: any) {
+      console.error('PDF image conversion error:', err);
+      throw new Error(`Failed to process PDF file: ${err.message || err}`);
+    }
+  },
+
+  /**
    * Extract text from PDF file using PDF.js
    */
   async extractTextFromPDF(file: File): Promise<string> {
@@ -483,8 +521,7 @@ export const ocrService = {
       if (onProgress) onProgress({ stage: 'Uploading', progress: 50 });
       if (onProgress) onProgress({ stage: 'Preprocessing', progress: 10 });
 
-      // @ts-ignore
-      const worker = new OCRWorker();
+      const worker = new Worker('/ocr.worker.js', { type: 'classic' });
 
       worker.onmessage = async (e: MessageEvent) => {
         const { type, data, error } = e.data;

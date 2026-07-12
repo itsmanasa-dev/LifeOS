@@ -63,11 +63,14 @@ const CollegeHub: React.FC = () => {
     try {
       let parsed;
       if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-        setProgress({ stage: 'Preprocessing', progress: 20, detail: 'Reading PDF pages...' });
-        const text = await ocrService.extractTextFromPDF(file);
-        
-        setProgress({ stage: 'Parsing Timetable', progress: 70, detail: 'Extracting PDF timetable slots...' });
-        parsed = ocrService.parseTimetableText(text);
+        setProgress({ stage: 'Preprocessing', progress: 15, detail: 'Rendering PDF page to image...' });
+        const imageBlob = await ocrService.convertPDFToImage(file);
+        const imageFile = new File([imageBlob], 'timetable.png', { type: 'image/png' });
+
+        parsed = await ocrService.extractTimetableFromImage(imageFile, (p) => {
+          setProgress(p);
+          toast.loading(`${p.stage}: ${p.detail || `${p.progress}%`}`, { id: 'ocr' });
+        });
       } else {
         // Image parsing using OpenCV + Tesseract.js Worker
         parsed = await ocrService.extractTimetableFromImage(file, (p) => {
@@ -115,6 +118,47 @@ const CollegeHub: React.FC = () => {
       setIsExtracting(false);
       setProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDemoUpload = async () => {
+    setIsExtracting(true);
+    setProgress({ stage: 'Preprocessing', progress: 10, detail: 'Loading demo timetable...' });
+    toast.loading('Initializing demo timetable...', { id: 'ocr' });
+    try {
+      const response = await fetch('/mock_timetable.png');
+      const blob = await response.blob();
+      const file = new File([blob], 'mock_timetable.png', { type: 'image/png' });
+      
+      const parsed = await ocrService.extractTimetableFromImage(file, (p) => {
+        setProgress(p);
+        toast.loading(`${p.stage}: ${p.detail || `${p.progress}%`}`, { id: 'ocr' });
+      });
+
+      if (!parsed.slots || parsed.slots.length === 0) {
+        throw new Error("We couldn't detect your timetable. Try uploading a clearer image or PDF.");
+      }
+
+      setProgress({ stage: 'Preparing Review', progress: 95, detail: 'Saving file reference...' });
+      const downloadUrl = URL.createObjectURL(file);
+      
+      toast.success('Demo timetable layout extracted successfully!', { id: 'ocr' });
+      navigate('/college/import-preview', { 
+        state: { 
+          entries: parsed.slots,
+          imageUrl: downloadUrl,
+          semester: parsed.semester
+        } 
+      });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(
+        err.message || "We couldn't detect the timetable.", 
+        { id: 'ocr' }
+      );
+    } finally {
+      setIsExtracting(false);
+      setProgress(null);
     }
   };
 
@@ -277,6 +321,16 @@ const CollegeHub: React.FC = () => {
                 <p className="text-xs text-dark-text-secondary max-w-xs leading-relaxed">
                   Upload an image or PDF of your schedule. Local OCR will extract and parse class slots automatically.
                 </p>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDemoUpload();
+                  }}
+                  className="mt-3 text-xs text-cyan-400 hover:text-cyan-300 underline font-semibold cursor-pointer z-10"
+                >
+                  Or load demo timetable image
+                </button>
               </div>
             )}
           </div>
